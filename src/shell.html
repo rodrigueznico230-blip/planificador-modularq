@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planificador multi-proyecto</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>/*TW*/</style>
+<style>
+/* Layout: barra superior + navegación lateral + vista operativa (resumen → detalle).
+   Paleta: neutros gray de Tailwind, un único acento emerald (chapa prepintada),
+   amber reservado para el cuello de botella. Tipografía Inter con cifras tabulares. */
+:root {
+  color-scheme: light;
+  --bg: 243 244 246;          /* gray-100 */
+  --surface: 255 255 255;     /* white */
+  --surface-2: 249 250 251;   /* gray-50 */
+  --ink: 17 24 39;            /* gray-900 */
+  --ink-2: 75 85 99;          /* gray-600 */
+  --ink-3: 107 114 128;       /* gray-500 */
+  --line: 229 231 235;        /* gray-200 */
+  --line-2: 243 244 246;      /* gray-100 */
+  --accent: 4 120 87;         /* emerald-700 */
+  --accent-hover: 6 95 70;    /* emerald-800 */
+  --accent-soft: 236 253 245; /* emerald-50 */
+  --accent-ink: 255 255 255;
+  --signal: 217 119 6;        /* amber-600 */
+  --signal-soft: 254 243 199; /* amber-100 */
+  --ok: 5 150 105;            /* emerald-600 */
+  --ok-soft: 209 250 229;     /* emerald-100 */
+  --warn: 217 119 6;          /* amber-600 */
+  --warn-soft: 254 243 199;   /* amber-100 */
+  --bad: 225 29 72;           /* rose-600 */
+  --bad-soft: 255 228 230;    /* rose-100 */
+  --nonwork: 243 244 246;
+  /* series categóricas (proyectos), orden fijo validado */
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948; --s9: #9ca3af;
+  --s1-ink: #fff; --s2-ink: #fff; --s3-ink: #06281c; --s4-ink: #2b1d00;
+  --s5-ink: #3a0d1e; --s6-ink: #fff; --s7-ink: #fff; --s8-ink: #fff; --s9-ink: #111827;
+  /* rampa secuencial de ocupación (emerald 100 → 800) */
+  --h0: rgb(249 250 251); --h1: #d1fae5; --h2: #a7f3d0; --h3: #6ee7b7; --h4: #34d399;
+  --h5: #10b981; --h6: #059669; --h7: #047857; --h8: #065f46;
+  --h-ink-dark: #064e3b; --h-ink-light: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: 3 7 18; --surface: 17 24 39; --surface-2: 24 32 47;
+    --ink: 243 244 246; --ink-2: 209 213 219; --ink-3: 156 163 175;
+    --line: 55 65 81; --line-2: 31 41 55;
+    --accent: 52 211 153; --accent-hover: 110 231 183; --accent-soft: 6 46 36; --accent-ink: 3 7 18;
+    --signal: 251 191 36; --signal-soft: 69 46 6;
+    --ok: 52 211 153; --ok-soft: 6 46 36; --warn: 251 191 36; --warn-soft: 69 46 6; --bad: 251 113 133; --bad-soft: 76 5 25;
+    --nonwork: 24 32 47;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; --s9: #6b7280;
+    --s3-ink: #fff; --s4-ink: #1a1200; --s5-ink: #fff; --s9-ink: #fff;
+    --h0: rgb(24 32 47); --h1: #022c22; --h2: #064e3b; --h3: #065f46; --h4: #047857;
+    --h5: #059669; --h6: #10b981; --h7: #34d399; --h8: #6ee7b7;
+    --h-ink-dark: #ecfdf5; --h-ink-light: #022c22;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: 3 7 18; --surface: 17 24 39; --surface-2: 24 32 47;
+  --ink: 243 244 246; --ink-2: 209 213 219; --ink-3: 156 163 175;
+  --line: 55 65 81; --line-2: 31 41 55;
+  --accent: 52 211 153; --accent-hover: 110 231 183; --accent-soft: 6 46 36; --accent-ink: 3 7 18;
+  --signal: 251 191 36; --signal-soft: 69 46 6;
+  --ok: 52 211 153; --ok-soft: 6 46 36; --warn: 251 191 36; --warn-soft: 69 46 6; --bad: 251 113 133; --bad-soft: 76 5 25;
+  --nonwork: 24 32 47;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; --s9: #6b7280;
+  --s3-ink: #fff; --s4-ink: #1a1200; --s5-ink: #fff; --s9-ink: #fff;
+  --h0: rgb(24 32 47); --h1: #022c22; --h2: #064e3b; --h3: #065f46; --h4: #047857;
+  --h5: #059669; --h6: #10b981; --h7: #34d399; --h8: #6ee7b7;
+  --h-ink-dark: #ecfdf5; --h-ink-light: #022c22;
+}
+html, body { height: 100%; }
+body { background: rgb(var(--bg)); color: rgb(var(--ink)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.num, table td, table th { font-variant-numeric: tabular-nums; }
+h1, h2, h3 { text-wrap: balance; }
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Controles de formulario coherentes */
+:where(.fld) { width: 100%; }
+.fld { background: rgb(var(--surface)); border: 1px solid rgb(var(--line)); border-radius: .375rem; padding: .375rem .5rem; font-size: .875rem; line-height: 1.25rem; color: rgb(var(--ink)); transition: border-color .15s, box-shadow .15s; }
+.fld:hover { border-color: rgb(var(--ink-3) / .6); }
+.fld:focus { outline: none; border-color: rgb(var(--accent)); box-shadow: 0 0 0 3px rgb(var(--accent) / .18); }
+.fld.bare { border-color: transparent; background: transparent; }
+.fld.bare:hover { border-color: rgb(var(--line)); background: rgb(var(--surface)); }
+.fld.bare:focus { background: rgb(var(--surface)); }
+input[type=number].fld { text-align: right; }
+select.fld { padding-right: 1.75rem; }
+
+/* Navegación */
+.nav-link { display: flex; align-items: center; gap: .625rem; padding: .5rem .75rem; border-radius: .375rem; font-size: .875rem; font-weight: 500; color: rgb(var(--ink-2)); transition: background-color .15s, color .15s; }
+.nav-link:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+.nav-link[aria-current="page"] { background: rgb(var(--accent-soft)); color: rgb(var(--accent)); }
+.nav-link svg { width: 1.125rem; height: 1.125rem; flex: none; }
+
+/* Gantt */
+.gantt { position: relative; }
+.g-row { display: flex; min-height: 2.25rem; border-bottom: 1px solid rgb(var(--line-2)); }
+.g-row.group { background: rgb(var(--surface-2)); min-height: 2.5rem; }
+.g-label { position: sticky; left: 0; z-index: 3; flex: none; background: rgb(var(--surface)); border-right: 1px solid rgb(var(--line)); display: flex; align-items: center; gap: .5rem; padding: 0 .75rem; font-size: .8125rem; }
+.g-row.group .g-label { background: rgb(var(--surface-2)); font-weight: 600; }
+.g-track { position: relative; flex: none; }
+.g-bar { position: absolute; top: .4375rem; height: 1.375rem; border-radius: .25rem; font-size: .6875rem; font-weight: 600; line-height: 1.375rem; padding: 0 .375rem; overflow: hidden; white-space: nowrap; text-overflow: clip; cursor: default; box-shadow: 0 0 0 1px rgb(var(--surface)); }
+.g-bar.wait { background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / .55) 0 3px, transparent 3px 7px) !important; }
+.g-bar.thin { top: .8125rem; height: .625rem; }
+.g-head { position: sticky; top: 0; z-index: 5; background: rgb(var(--surface)); }
+.g-head .g-label { z-index: 6; }
+.g-nonwork { position: absolute; top: 0; bottom: 0; background: rgb(var(--nonwork)); }
+.g-line { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid; pointer-events: none; z-index: 2; }
+.g-due { position: absolute; top: .25rem; bottom: .25rem; width: 0; border-left: 2px dashed rgb(var(--ink-2)); z-index: 2; }
+.g-due.late { border-color: rgb(var(--bad)); }
+
+/* Mapa de calor */
+.heat td.c { width: var(--cw, 1.75rem); min-width: var(--cw, 1.75rem); height: 1.75rem; padding: 0; border: 2px solid rgb(var(--surface)); border-radius: 4px; font-size: .625rem; text-align: center; font-weight: 600; }
+.heat th { font-weight: 500; }
+
+/* Tooltip */
+#tip { position: fixed; z-index: 60; pointer-events: none; max-width: 20rem; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+#tip.on { opacity: 1; transform: none; }
+
+/* Diálogos */
+dialog { background: transparent; padding: 0; max-width: min(44rem, calc(100vw - 2rem)); width: 100%; }
+dialog::backdrop { background: rgb(3 7 18 / .45); backdrop-filter: blur(2px); }
+
+.scroll-x { overflow-x: auto; }
+.fld.missing { border-color: rgb(var(--warn)); background: rgb(var(--warn-soft) / .45); }
+.fld:disabled { opacity: .5; }
+.fld.invalid { border-color: rgb(var(--bad)); box-shadow: 0 0 0 3px rgb(var(--bad) / .15); }
+.field-msg { font-size: .75rem; line-height: 1rem; color: rgb(var(--bad)); margin-top: .25rem; }
+.field-msg:empty { display: none; }
+@keyframes flash { from { background: rgb(var(--signal-soft)); } to { background: transparent; } }
+.flash { animation: flash 1.6s ease-out; }
+body.readonly #view input[data-path], body.readonly #view select[data-path], body.readonly #view textarea[data-path] { pointer-events: none; background: transparent; border-color: transparent; }
+body.readonly #view [data-act^="add-"], body.readonly #view [data-act^="del-"], body.readonly #view [data-act="dup-model"], body.readonly #btnUndo, body.readonly [data-act="import"], body.readonly [data-act="reset"], body.readonly #fileImport { display: none; }
+.chip-toggle[aria-pressed="true"] { background: rgb(var(--accent-soft)); color: rgb(var(--accent)); border-color: rgb(var(--accent) / .45); }
+</style>
+</head>
+<body class="h-full overflow-hidden">
+<div id="app" class="h-full flex flex-col">
+  <header class="h-14 flex-none flex items-center gap-4 px-4 sm:px-6 bg-surface border-b border-line">
+    <div class="flex items-center gap-3 min-w-0">
+      <svg viewBox="0 0 32 32" class="w-8 h-8 flex-none" aria-hidden="true">
+        <rect x="1.5" y="8.5" width="29" height="15" rx="2.5" fill="rgb(var(--accent))"/>
+        <path d="M11 8.5v15M21 8.5v15" stroke="rgb(var(--accent-ink))" stroke-width="1.5" opacity=".7"/>
+        <rect x="4" y="25" width="5" height="2.5" rx="1" fill="rgb(var(--ink-3))"/><rect x="23" y="25" width="5" height="2.5" rx="1" fill="rgb(var(--ink-3))"/>
+      </svg>
+      <div class="min-w-0">
+        <div class="text-sm font-semibold tracking-tight leading-tight">Planificador multi-proyecto</div>
+        <div id="planName" class="text-xs text-ink-3 truncate leading-tight"></div>
+      </div>
+    </div>
+    <div id="hdrStatus" class="hidden md:flex items-center gap-2 ml-auto text-sm text-ink-2" aria-live="polite"></div>
+    <button id="saved" data-open-data class="hidden lg:inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-3 hover:bg-surface-2 hover:text-ink transition-colors"></button>
+    <button id="btnUndo" class="ml-auto md:ml-0 inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2 transition-colors duration-150" title="Deshacer el último cambio (Ctrl+Z)">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" class="w-4 h-4"><path d="M7.5 5 4 8.5 7.5 12M4.5 8.5h7a4.5 4.5 0 0 1 0 9H9" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="hidden sm:inline">Deshacer</span>
+    </button>
+    <div id="acct" class="hidden"></div>
+    <button id="btnData" class="inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-2 transition-colors duration-150">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" class="w-4 h-4"><path d="M4 13v2.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V13M10 3v10m0 0-3.5-3.5M10 13l3.5-3.5"/></svg>
+      Importar y exportar
+    </button>
+  </header>
+  <div class="flex-1 flex min-h-0 flex-col md:flex-row">
+    <nav id="nav" aria-label="Secciones" class="flex-none md:w-60 bg-surface border-b md:border-b-0 md:border-r border-line md:overflow-y-auto">
+      <div class="flex md:flex-col gap-1 p-2 md:p-3 overflow-x-auto">
+        <div class="hidden md:block px-3 pt-1 pb-2 text-xs font-medium text-ink-3">Programa</div>
+        <a class="nav-link" href="#resumen"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="11" y="3" width="6" height="4" rx="1.2"/><rect x="11" y="9" width="6" height="8" rx="1.2"/><rect x="3" y="11" width="6" height="6" rx="1.2"/></svg>Resumen</a>
+        <a class="nav-link" href="#gantt"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h7M6 10h9M9 16h8" stroke-linecap="round"/></svg>Gantt</a>
+        <a class="nav-link" href="#carga"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="4" height="4" rx=".8"/><rect x="8" y="3" width="4" height="4" rx=".8" fill="currentColor"/><rect x="13" y="3" width="4" height="4" rx=".8"/><rect x="3" y="8" width="4" height="4" rx=".8" fill="currentColor"/><rect x="8" y="8" width="4" height="4" rx=".8"/><rect x="13" y="8" width="4" height="4" rx=".8" fill="currentColor"/><rect x="3" y="13" width="4" height="4" rx=".8"/><rect x="8" y="13" width="4" height="4" rx=".8" fill="currentColor"/><rect x="13" y="13" width="4" height="4" rx=".8"/></svg>Carga de operarios</a>
+        <a class="nav-link" href="#equilibrado"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 17V9M8 17V5M12 17V8M16 17V6M2.5 7h15" stroke-linecap="round" stroke-dasharray="0"/></svg>Equilibrado</a>
+        <div class="hidden md:block px-3 pt-5 pb-2 text-xs font-medium text-ink-3">Datos del plan</div>
+        <a class="nav-link" href="#proyectos"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H8l1.5 2h6A1.5 1.5 0 0 1 17 8.5v6a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z"/></svg>Proyectos</a>
+        <a class="nav-link" href="#modelos"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="6" width="15" height="9" rx="1.5"/><path d="M7.5 6v9M12.5 6v9"/></svg>Modelos y tareas</a>
+        <a class="nav-link" href="#operarios"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="7" r="3"/><path d="M4 17c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5" stroke-linecap="round"/></svg>Operarios</a>
+        <a class="nav-link" href="#estaciones"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 16V8l4-3v3l4-3v3l4-3v11z" stroke-linejoin="round"/></svg>Estaciones</a>
+        <a class="nav-link" href="#calendario"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4.5" width="14" height="12.5" rx="1.5"/><path d="M3 8.5h14M7 3v3M13 3v3" stroke-linecap="round"/></svg>Calendario</a>
+      </div>
+    </nav>
+    <main id="main" class="flex-1 min-w-0 overflow-y-auto">
+      <div id="notice" class="hidden" role="status"></div>
+      <div id="view" class="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6"></div>
+    </main>
+  </div>
+</div>
+
+<div id="tip" role="tooltip" class="rounded-lg bg-surface border border-line shadow-lg px-3 py-2 text-xs leading-relaxed text-ink"></div>
+<div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 hidden" role="status" aria-live="polite"></div>
+
+<dialog id="dlgData" aria-labelledby="dlgDataTitle">
+  <div class="rounded-xl bg-surface border border-line shadow-2xl text-ink">
+    <div class="flex items-center justify-between px-6 pt-5 pb-3">
+      <h2 id="dlgDataTitle" class="text-lg font-semibold tracking-tight">Importar y exportar</h2>
+      <button data-close class="rounded-md p-1.5 text-ink-3 hover:bg-surface-2 hover:text-ink" aria-label="Cerrar"><svg viewBox="0 0 20 20" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="px-6 pb-6 space-y-6">
+      <section class="space-y-2">
+        <h3 class="text-sm font-semibold">Copiar el plan completo</h3>
+        <p class="text-sm text-ink-2">Guardá este texto en un archivo .json para respaldar el plan o pasarlo a otra computadora.</p>
+        <div class="flex flex-wrap gap-2">
+          <button data-act="copy-json" class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover transition-colors">Copiar plan (JSON)</button>
+          <button data-act="copy-csv" class="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2 transition-colors">Copiar programa de tareas (CSV)</button>
+        </div>
+      </section>
+      <section class="space-y-2">
+        <h3 class="text-sm font-semibold">Cargar un plan</h3>
+        <p class="text-sm text-ink-2">Elegí un archivo .json exportado desde aquí, o pegá su contenido. Reemplaza el plan actual.</p>
+        <input id="fileImport" type="file" accept=".json,application/json" class="block w-full text-sm text-ink-2 file:mr-3 file:rounded-md file:border-0 file:bg-surface-2 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-ink hover:file:bg-line">
+        <label for="txtImport" class="sr-only">Contenido JSON</label>
+        <textarea id="txtImport" rows="5" class="fld font-mono text-xs" placeholder='{"calendar": …, "projects": […]}'></textarea>
+        <p id="importMsg" class="text-sm"></p>
+        <div class="flex flex-wrap gap-2">
+          <button data-act="import" class="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent-hover transition-colors">Cargar plan</button>
+          <button data-act="reset" class="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2 transition-colors">Restablecer datos de ejemplo</button>
+        </div>
+      </section>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlgLogin" aria-labelledby="dlgLoginTitle">
+  <div class="rounded-xl bg-surface border border-line shadow-2xl text-ink mx-auto max-w-sm">
+    <form id="formLogin" class="p-6 space-y-4" novalidate>
+      <div class="flex items-start justify-between gap-4">
+        <div><h2 id="dlgLoginTitle" class="text-lg font-semibold tracking-tight">Ingresar</h2><p class="mt-1 text-sm text-ink-2">Usá tu cuenta de ModulArq. Los administradores editan el plan; los operarios lo ven.</p></div>
+        <button type="button" data-close class="rounded-md p-1.5 text-ink-3 hover:bg-surface-2 hover:text-ink" aria-label="Cerrar"><svg viewBox="0 0 20 20" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15" stroke-linecap="round"/></svg></button>
+      </div>
+      <label class="block text-sm text-ink-2" for="loginUser">Correo o usuario<input id="loginUser" class="fld mt-1" autocomplete="username" required></label>
+      <label class="block text-sm text-ink-2" for="loginPass">Contraseña<input id="loginPass" class="fld mt-1" type="password" autocomplete="current-password" required></label>
+      <p id="loginMsg" class="text-sm text-bad min-h-5" role="alert"></p>
+      <button id="loginSubmit" class="w-full rounded-md bg-accent px-3 py-2 text-sm font-semibold text-accent-ink hover:bg-accent-hover transition-colors">Ingresar</button>
+    </form>
+  </div>
+</dialog>
+
+<script>/*CONFIG*/</script>
+<script>/*ENGINE*/</script>
+<script>/*SAMPLE*/</script>
+<script>/*APP*/</script>
+<!--SUPABASE-->
+<script>/*CLOUD*/</script>
+</body>
+</html>
