@@ -22,6 +22,8 @@
   }
 
   /* ---------------- Calendario ---------------- */
+  const Q = 4; // resolución: 4 intervalos de 15 minutos por hora
+
   function makeCalendar(cal, maxDays) {
     const start = parseISO(cal.start);
     const hol = new Set((cal.holidays || []).map(h => String(h).trim()).filter(Boolean));
@@ -33,13 +35,13 @@
       const dow = new Date(ms).getUTCDay();
       const isHol = hol.has(iso);
       const hours = isHol ? 0 : Math.max(0, Math.round(Number(cal.hours[dow]) || 0));
-      days.push({ i, ms, iso, dow, hours, holiday: isHol, slot0: slot });
-      slot += hours;
+      days.push({ i, ms, iso, dow, hours, slots: hours * Q, holiday: isHol, slot0: slot });
+      slot += hours * Q;
     }
     const slotDay = new Int32Array(slot);
-    for (const d of days) for (let h = 0; h < d.hours; h++) slotDay[d.slot0 + h] = d.i;
+    for (const d of days) for (let h = 0; h < d.slots; h++) slotDay[d.slot0 + h] = d.i;
     return {
-      start, days, totalSlots: slot, slotDay,
+      start, days, totalSlots: slot, slotDay, Q,
       dayOfSlot(s) {
         if (s <= 0) return days[0];
         if (s >= slot) return days[days.length - 1];
@@ -49,13 +51,13 @@
       posStart(s) {
         if (s >= slot) return days.length;
         const d = days[slotDay[Math.max(0, s)]];
-        return d.i + (s - d.slot0) / d.hours;
+        return d.i + (s - d.slot0) / d.slots;
       },
       posEnd(sExcl) {
         if (sExcl <= 0) return 0;
         const s = Math.min(sExcl, slot) - 1;
         const d = days[slotDay[s]];
-        return d.i + (s - d.slot0 + 1) / d.hours;
+        return d.i + (s - d.slot0 + 1) / d.slots;
       },
       /* primer slot hábil en o después de la fecha */
       slotAtDate(iso) {
@@ -69,7 +71,7 @@
         let idx = Math.round((parseISO(iso) - start) / DAY_MS);
         if (idx < 0) return 0;
         if (idx >= days.length) return slot;
-        return days[idx].slot0 + days[idx].hours;
+        return days[idx].slot0 + days[idx].slots;
       },
       /* días hábiles entre dos slots (con signo) */
       workdaysBetween(a, b) {
@@ -186,7 +188,7 @@
             key: `${unit.key}:${t.id}`, unit, tpl: t, order: ti,
             hh: Math.max(0, +t.hh || 0), rem: Math.max(0, +t.hh || 0),
             cmin: Math.max(1, Math.round(+t.cmin || 1)), cmax: Math.max(1, Math.round(+t.cmax || 1)),
-            wait: Math.max(0, Math.round(+t.wait || 0)),
+            wait: Math.max(0, Math.round((+t.wait || 0) * Q)),
             st: stIdx[t.station], pw: pw[t.id] || 0,
             preds: [], status: 0, // 0 espera, 1 en curso, 2 mano de obra terminada (curando), 3 terminada
             start: null, laborEnd: null, end: null, crew: new Set(), lastCrew: [], workedSlots: 0
@@ -209,6 +211,13 @@
     const wDay = workers.map(() => new Map()); // dayIndex -> horas ocupadas
     const skillDay = {}; // skill -> Map(dayIndex -> horas)
 
+    const freeBuf = new Uint8Array(workers.length);
+    const bySkill = new Map();
+    for (const sk of new Set(workers.flatMap(w => [...w.skillSet]))) {
+      bySkill.set(sk, workers.map((w, i) => i).filter(i => workers[i].skillSet.has(sk))
+        .sort((a, b) => (workers[a].skillSet.size - workers[b].skillSet.size) || (workers[b].avail - workers[a].avail) || (a - b)));
+    }
+    const relSlots = [...new Set(projects.filter(p => !p.excluded && p.relSlot != null).map(p => p.relSlot))];
     let pending = tasks.length;
     let t = 0;
     const maxT = cal.totalSlots;
@@ -260,42 +269,46 @@
       };
 
       // 3) esperas puras (sin mano de obra)
+      let startedWait = false;
       for (const x of ready) {
         if (x.hh > 0 || x.status !== 0) continue;
         if (!canEnter(x)) continue;
         enter(x);
         x.status = 2; x.laborEnd = t; x.end = t + x.wait;
         curing.push(x);
+        startedWait = true;
       }
 
       // 4) asignación de operarios
+      let changedNow = false; // un inicio o un fin cambia el orden de prioridades del intervalo siguiente
       const dNow = cal.days[cal.slotDay[t]];
-      const hourOfDay = t - dNow.slot0;
-      const free = new Set();
-      workers.forEach((w, i) => { if (hourOfDay < Math.round(dNow.hours * w.avail)) free.add(i); });
+      const slotOfDay = t - dNow.slot0;
+      const free = freeBuf;
+      for (let i = 0; i < workers.length; i++) free[i] = slotOfDay < Math.round(dNow.slots * workers[i].avail) ? 1 : 0;
       const crews = new Map();
+      // Prioridad: quienes ya venían en la tarea, luego el orden fijo por especialidad (menos polivalentes primero)
       const pick = (x, n) => {
-        const cands = [];
-        for (const wi of free) if (workers[wi].skillSet.has(x.tpl.skill)) cands.push(wi);
-        const last = new Set(x.lastCrew);
-        cands.sort((a, b) => (last.has(b) - last.has(a)) || (workers[a].skillSet.size - workers[b].skillSet.size) || (workers[b].avail - workers[a].avail) || (a - b));
-        return cands.slice(0, n);
+        const out = [];
+        for (const wi of x.lastCrew) { if (out.length >= n) return out; if (free[wi] && workers[wi].skillSet.has(x.tpl.skill)) out.push(wi); }
+        const order = bySkill.get(x.tpl.skill) || [];
+        for (const wi of order) { if (out.length >= n) break; if (free[wi] && !out.includes(wi)) out.push(wi); }
+        return out;
       };
       for (const x of ready) {
         if (x.hh <= 0 || x.status === 2) continue;
         if (x.status === 0 && !canEnter(x)) continue;
         const c = pick(x, x.cmin);
         if (c.length < x.cmin) continue;
-        c.forEach(wi => free.delete(wi));
+        for (const wi of c) free[wi] = 0;
         crews.set(x, c);
-        if (x.status === 0) { enter(x); x.status = 1; }
+        if (x.status === 0) { enter(x); x.status = 1; changedNow = true; }
       }
       for (const [x, c] of crews) {
-        let cap = c.reduce((s, wi) => s + workers[wi].eff, 0);
+        let cap = c.reduce((s, wi) => s + workers[wi].eff / Q, 0);
         while (c.length < x.cmax && cap < x.rem - 1e-9) {
           const more = pick(x, 1);
           if (!more.length) break;
-          free.delete(more[0]); c.push(more[0]); cap += workers[more[0]].eff;
+          free[more[0]] = 0; c.push(more[0]); cap += workers[more[0]].eff / Q;
         }
       }
 
@@ -304,14 +317,14 @@
       for (const [x, c] of crews) {
         let done = 0;
         for (const wi of c) {
-          done += workers[wi].eff;
+          done += workers[wi].eff / Q;
           x.crew.add(wi);
           const segs = wSeg[wi];
           const last = segs[segs.length - 1];
           if (last && last.task === x && last.e === t) last.e = t + 1; else segs.push({ task: x, s: t, e: t + 1 });
-          wDay[wi].set(day, (wDay[wi].get(day) || 0) + 1);
+          wDay[wi].set(day, (wDay[wi].get(day) || 0) + 1 / Q);
           const sk = x.tpl.skill;
-          (skillDay[sk] || (skillDay[sk] = new Map())).set(day, ((skillDay[sk].get(day)) || 0) + 1);
+          (skillDay[sk] || (skillDay[sk] = new Map())).set(day, ((skillDay[sk].get(day)) || 0) + 1 / Q);
         }
         x.lastCrew = c.slice();
         x.workedSlots++;
@@ -319,9 +332,44 @@
         if (x.rem <= 1e-6) {
           x.rem = 0; x.status = 2; x.laborEnd = t + 1; x.end = t + 1 + x.wait;
           curing.push(x);
+          changedNow = true;
         }
       }
       for (let s = 0; s < stations.length; s++) occSlots[s] += occ[s];
+
+      // 6) avance rápido: si nada puede cambiar en los próximos k intervalos, se aplican de una vez
+      //    (mismo resultado que simular intervalo por intervalo)
+      if (!changedNow && !startedWait && crews.size) {
+        let k = dNow.slot0 + dNow.slots - (t + 1);
+        for (let i = 0; i < workers.length && k > 0; i++) {
+          const b = dNow.slot0 + Math.round(dNow.slots * workers[i].avail);
+          if (b > t) k = Math.min(k, b - (t + 1));
+        }
+        for (const x of curing) k = Math.min(k, x.end - (t + 1));
+        for (const r of relSlots) if (r > t) k = Math.min(k, r - (t + 1));
+        for (const [x, c] of crews) {
+          if (k <= 0) break;
+          const pr = c.reduce((a, wi) => a + workers[wi].eff / Q, 0);
+          k = Math.min(k, Math.ceil(x.rem / pr - 1e-9) - 1);
+          if (c.length > x.cmin) {
+            const capPrev = pr - workers[c[c.length - 1]].eff / Q;
+            k = Math.min(k, Math.max(0, Math.floor((x.rem - capPrev) / pr - 1e-9)));
+          }
+        }
+        if (k > 0) {
+          for (const [x, c] of crews) {
+            for (const wi of c) {
+              const segs = wSeg[wi]; segs[segs.length - 1].e += k;
+              wDay[wi].set(day, wDay[wi].get(day) + k / Q);
+              const sk = x.tpl.skill; skillDay[sk].set(day, skillDay[sk].get(day) + k / Q);
+              x.rem -= k * workers[wi].eff / Q;
+            }
+            x.workedSlots += k;
+          }
+          for (let s = 0; s < stations.length; s++) occSlots[s] += occ[s] * k;
+          t += k;
+        }
+      }
       t++;
     }
     // cerrar esperas que terminan en el último slot
@@ -358,7 +406,7 @@
     const firstDay = 0;
     const workerStats = workers.map((w, i) => {
       let avail = 0, busy = 0;
-      for (let d = firstDay; d <= lastDay; d++) { avail += Math.round(cal.days[d].hours * w.avail); busy += wDay[i].get(d) || 0; }
+      for (let d = firstDay; d <= lastDay; d++) { avail += Math.round(cal.days[d].slots * w.avail) / Q; busy += wDay[i].get(d) || 0; }
       return { ...w, idx: i, segs: wSeg[i], day: wDay[i], busy, availH: avail, util: avail ? busy / avail : 0 };
     });
     const avgUtil = workerStats.length ? workerStats.reduce((s, w) => s + w.util, 0) / workerStats.length : 0;

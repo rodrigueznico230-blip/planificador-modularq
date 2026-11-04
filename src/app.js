@@ -16,6 +16,9 @@ const fmt = ms => fDay.format(new Date(ms)).replace(/\./g, '').replace(',', '');
 const fmtDM = ms => fDM.format(new Date(ms)).replace(/\./g, '');
 const isoMs = iso => E.parseISO(iso);
 const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+const nf2 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
+const fmtMin = h => String(Math.round(h * 60 * 100) / 100);
+const fmtHrs = h => `= ${nf2.format(h)} h`;
 const PRIO = { 1: 'Alta', 2: 'Media', 3: 'Baja' };
 const DOW = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const DOW1 = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
@@ -463,7 +466,7 @@ views.carga = () => {
   const wRows = R.workers.map(w => {
     const cells = periods.map(p => {
       let busy = 0, av = 0;
-      p.days.forEach(d => { busy += w.day.get(d.i) || 0; av += Math.round(d.hours * w.avail); });
+      p.days.forEach(d => { busy += w.day.get(d.i) || 0; av += Math.round(d.slots * w.avail) / R.cal.Q; });
       const u = av ? busy / av : 0;
       const [bg, ink] = heatColor(u);
       return `<td class="c" style="background:${bg};color:${ink}" ${tipAttr(`<b>${esc(w.name)}</b><br>${esc(p.title)}<br>${nf1.format(busy)} h asignadas de ${nf1.format(av)} h disponibles (${pct(u)})`)}>${scale === 'semanas' && u > 0 ? pct(u) : ''}</td>`;
@@ -475,7 +478,7 @@ views.carga = () => {
     const m = R.skillDay[s.skill] || new Map();
     const cells = periods.map(p => {
       let busy = 0, av = 0;
-      p.days.forEach(d => { busy += m.get(d.i) || 0; qual.forEach(w => (av += Math.round(d.hours * w.avail))); });
+      p.days.forEach(d => { busy += m.get(d.i) || 0; qual.forEach(w => (av += Math.round(d.slots * w.avail) / R.cal.Q)); });
       const u = av ? busy / av : 0;
       const [bg, ink] = heatColor(u);
       return `<td class="c" style="background:${bg};color:${ink}" ${tipAttr(`<b>${esc(s.skill)}</b><br>${esc(p.title)}<br>${nf1.format(busy)} h de ${nf1.format(av)} h de operarios habilitados (${pct(u)})`)}>${scale === 'semanas' && u > 0 ? pct(u) : ''}</td>`;
@@ -617,26 +620,26 @@ views.modelos = () => {
   const stName = id => (S.stations.find(x => x.id === id) || {}).name || 'Sin estación';
   const stStats = {};
   m.tasks.forEach(t => { const o = stStats[t.station] || (stStats[t.station] = { n: 0, hh: 0, miss: 0 }); o.n++; o.hh += +t.hh || 0; if (taskMissing(t)) o.miss++; });
-  const rows = m.tasks.map((t, i) => (t.station !== lastSt ? (lastSt = t.station, `<tr class="bg-surface-2/70 border-t border-line"><td colspan="10" class="pl-4 pr-4 py-2"><div class="flex items-baseline gap-3"><span class="text-xs num text-ink-3 w-8">${esc(t.station || '')}</span><span class="text-sm font-semibold">${esc(stName(t.station))}</span><span class="text-xs text-ink-3">${stStats[t.station].n} tareas, ${nf1.format(stStats[t.station].hh)} HH${stStats[t.station].miss ? `, <span class="text-warn font-medium">${stStats[t.station].miss} sin tiempo</span>` : ''}</span></div></td></tr>`) : '') + `<tr class="border-t border-line-2">
+  const rows = m.tasks.map((t, i) => (t.station !== lastSt ? (lastSt = t.station, `<tr class="bg-surface-2/70 border-t border-line"><td colspan="10" class="pl-4 pr-4 py-2"><div class="flex items-baseline gap-3"><span class="text-xs num text-ink-3 w-8">${esc(t.station || '')}</span><span class="text-sm font-semibold">${esc(stName(t.station))}</span><span class="text-xs text-ink-3">${stStats[t.station].n} tareas, ${nf2.format(stStats[t.station].hh)} HH (${nf0.format(stStats[t.station].hh * 60)} min)${stStats[t.station].miss ? `, <span class="text-warn font-medium">${stStats[t.station].miss} sin tiempo</span>` : ''}</span></div></td></tr>`) : '') + `<tr class="border-t border-line-2">
     <td class="pl-4 pr-2 pt-3.5 align-top text-ink-3 num text-xs">${esc(t.id)}</td>
     <td class="px-1 min-w-72 align-top pt-1.5"><label class="sr-only" for="t${i}n">Tarea ${esc(t.id)}</label><input id="t${i}n" class="fld bare" value="${esc(t.name)}" data-path="models.${mi}.tasks.${i}.name"></td>
     <td class="px-1 w-52 align-top pt-1.5"><label class="sr-only" for="t${i}s">Estación</label><select id="t${i}s" class="fld" data-path="models.${mi}.tasks.${i}.station">${S.stations.map(s => `<option value="${esc(s.id)}" ${s.id === t.station ? 'selected' : ''}>${esc(s.id)} ${esc(s.name)}</option>`).join('')}</select></td>
     <td class="px-1 w-40 align-top pt-1.5"><label class="sr-only" for="t${i}k">Especialidad</label><select id="t${i}k" class="fld" data-path="models.${mi}.tasks.${i}.skill" data-rerender><option value="" ${!t.skill ? 'selected' : ''}>Espera (sin mano de obra)</option>${S.skills.map(s => `<option ${s === t.skill ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></td>
-    <td class="px-1 w-20 min-w-20 align-top pt-1.5"><label class="sr-only" for="t${i}h">HH</label><input id="t${i}h" class="fld num ${!isWaitTask(t) && taskMissing(t) ? 'missing' : ''}" type="number" min="0" step="0.5" value="${t.hh ?? ''}" placeholder="${isWaitTask(t) ? '—' : 'HH'}" ${isWaitTask(t) ? 'disabled' : ''} data-path="models.${mi}.tasks.${i}.hh" data-type="numnull"></td>
+    <td class="px-1 w-24 min-w-24 align-top pt-1.5"><label class="sr-only" for="t${i}h">Tiempo estándar en minutos de ${esc(t.id)}</label><input id="t${i}h" class="fld num ${!isWaitTask(t) && taskMissing(t) ? 'missing' : ''}" type="number" min="0" step="1" inputmode="decimal" value="${t.hh == null ? '' : fmtMin(t.hh)}" placeholder="${isWaitTask(t) ? '—' : 'min'}" ${isWaitTask(t) ? 'disabled' : ''} data-path="models.${mi}.tasks.${i}.hh" data-type="minnull" aria-describedby="t${i}h-msg"><p id="t${i}h-msg" class="field-msg !text-ink-3 text-right num">${t.hh ? fmtHrs(t.hh) : ''}</p></td>
     <td class="px-1 w-16 min-w-16 align-top pt-1.5"><label class="sr-only" for="t${i}a">Mínimo</label><input id="t${i}a" class="fld num" type="number" min="1" step="1" value="${t.cmin}" data-path="models.${mi}.tasks.${i}.cmin" data-type="int"></td>
     <td class="px-1 w-16 min-w-16 align-top pt-1.5"><label class="sr-only" for="t${i}b">Máximo</label><input id="t${i}b" class="fld num" type="number" min="1" step="1" value="${t.cmax}" data-path="models.${mi}.tasks.${i}.cmax" data-type="int"></td>
     <td class="px-1 w-20 min-w-20 align-top pt-1.5"><label class="sr-only" for="t${i}w">Espera</label><input id="t${i}w" class="fld num ${isWaitTask(t) && taskMissing(t) ? 'missing' : ''}" type="number" min="0" step="1" value="${t.wait ?? ''}" placeholder="h" data-path="models.${mi}.tasks.${i}.wait" data-type="intnull"></td>
     <td class="px-1 w-48 align-top pt-1.5"><label class="sr-only" for="t${i}p">Precedentes</label><input id="t${i}p" class="fld ${(t.preds || []).some(p => !m.tasks.some(k => k.id === p)) ? 'invalid' : ''}" value="${esc((t.preds || []).join(', '))}" data-path="models.${mi}.tasks.${i}.preds" data-type="list" placeholder="—" list="taskcodes" aria-describedby="t${i}p-msg"><p id="t${i}p-msg" class="field-msg !text-ink-3 truncate max-w-48" title="${esc((t.preds || []).map(p => { const k = m.tasks.find(x => x.id === p); return k ? p + ': ' + k.name : p + ' no existe'; }).join('\n'))}">${(t.preds || []).map(p => { const k = m.tasks.find(x => x.id === p); return k ? esc(k.name) : `<span class="text-bad">${esc(p)} no existe</span>`; }).join('; ')}</p></td>
     <td class="pl-1 pr-4 pt-1.5 align-top text-right">${delBtn('del-task', i, 'Eliminar tarea ' + t.id)}</td></tr>`).join('');
   const miss = modelMissing(m);
-  const missHtml = miss ? `<div class="mb-4 rounded-md border border-warn/40 bg-warn-soft px-4 py-3 text-sm leading-relaxed"><b>Faltan ${miss} de ${m.tasks.length} tiempos.</b> Completá las horas-hombre estándar de cada tarea (celdas resaltadas) y las horas de espera de las tareas de secado o curado. Mientras falten, los proyectos con este modelo no se evalúan contra su compromiso.</div>` : '';
+  const missHtml = miss ? `<div class="mb-4 rounded-md border border-warn/40 bg-warn-soft px-4 py-3 text-sm leading-relaxed"><b>Faltan ${miss} de ${m.tasks.length} tiempos.</b> Completá el tiempo estándar en minutos de cada tarea (celdas resaltadas) y las horas de espera de las tareas de secado o curado. Mientras falten, los proyectos con este modelo no se evalúan contra su compromiso.</div>` : '';
   const errHtml = errs.length ? `<div class="mb-4 rounded-md border border-bad/40 bg-bad-soft px-4 py-3 text-sm"><b>Este modelo no se puede programar todavía.</b><ul class="mt-1 list-disc pl-5">${errs.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>` : '';
-  return pageHead('Modelos y tareas', 'Un modelo es la receta de fabricación de un tipo de unidad: sus tareas, en qué estación se hacen, qué especialidad requieren, las horas-hombre estándar (Te) y qué tareas deben estar terminadas antes. La espera son horas hábiles de curado, secado o prueba sin mano de obra.', btn(plus + 'Nuevo modelo', 'add-model') + btn('Duplicar modelo', 'dup-model'))
+  return pageHead('Modelos y tareas', 'Un modelo es la receta de fabricación de un tipo de unidad: sus tareas, en qué estación se hacen, qué especialidad requieren, el tiempo estándar (Te) en minutos-hombre, que se convierte solo a horas, y qué tareas deben estar terminadas antes. La espera son horas hábiles de curado, secado o prueba sin mano de obra.', btn(plus + 'Nuevo modelo', 'add-model') + btn('Duplicar modelo', 'dup-model'))
     + `<nav aria-label="Catálogo de modelos" class="mb-4 rounded-lg border border-line bg-surface shadow-sm">${list}</nav>
     <div class="min-w-0"><div>${missHtml}${errHtml}${card(`<div class="flex flex-wrap items-end gap-3 px-4 pt-4 pb-3"><label class="w-48 text-xs text-ink-3" for="mType">Tipo<select id="mType" class="fld mt-1" data-path="models.${mi}.type" data-rerender>${CATALOG.map(c => `<option ${c.key === modelType(m) ? 'selected' : ''}>${esc(c.key)}</option>`).join('')}</select></label><label class="flex-1 min-w-64 text-xs text-ink-3" for="mName">Nombre del modelo<input id="mName" class="fld mt-1 text-base font-semibold" value="${esc(m.name)}" data-path="models.${mi}.name" data-rerender></label>
-      <div class="text-sm text-ink-2 pb-2"><span class="num font-semibold text-ink">${m.tasks.length}</span> tareas, <span class="num font-semibold text-ink">${nf1.format(hh)}</span> HH por unidad${modelMissing(m) ? `, <span class="font-semibold text-warn">${modelMissing(m)} sin tiempo</span>` : ''}</div>
+      <div class="text-sm text-ink-2 pb-2"><span class="num font-semibold text-ink">${m.tasks.length}</span> tareas, <span class="num font-semibold text-ink">${nf2.format(hh)}</span> HH por unidad${modelMissing(m) ? `, <span class="font-semibold text-warn">${modelMissing(m)} sin tiempo</span>` : ''}</div>
       ${delBtn('del-model', mi, 'Eliminar modelo')}</div>
-      <div class="scroll-x"><table class="w-full text-sm" style="min-width:1120px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Código</th><th class="px-1 font-medium">Tarea</th><th class="px-1 font-medium">Estación</th><th class="px-1 font-medium">Especialidad</th><th class="px-1 font-medium text-right">HH</th><th class="px-1 font-medium text-right" title="Cuadrilla mínima">Mín.</th><th class="px-1 font-medium text-right" title="Cuadrilla máxima">Máx.</th><th class="px-1 font-medium text-right" title="Horas hábiles de espera">Espera h</th><th class="px-1 font-medium" title="Códigos separados por coma">Precedentes</th><th></th></tr></thead><tbody>${rows}</tbody></table><datalist id="taskcodes">${m.tasks.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</datalist></div>
+      <div class="scroll-x"><table class="w-full text-sm" style="min-width:1120px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Código</th><th class="px-1 font-medium">Tarea</th><th class="px-1 font-medium">Estación</th><th class="px-1 font-medium">Especialidad</th><th class="px-1 font-medium text-right" title="Tiempo estándar por unidad, en minutos-hombre. Se convierte a horas automáticamente.">Tiempo (min)</th><th class="px-1 font-medium text-right" title="Cuadrilla mínima: operarios necesarios para hacer la tarea">Oper. mín.</th><th class="px-1 font-medium text-right" title="Cuadrilla máxima: operarios que pueden trabajar a la vez en la tarea">Oper. máx.</th><th class="px-1 font-medium text-right" title="Horas hábiles de espera">Espera h</th><th class="px-1 font-medium" title="Códigos separados por coma">Precedentes</th><th></th></tr></thead><tbody>${rows}</tbody></table><datalist id="taskcodes">${m.tasks.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</datalist></div>
       <div class="px-4 py-3 border-t border-line-2">${btn(plus + 'Agregar tarea', 'add-task')}</div>`)}</div></div>`;
 };
 
@@ -717,6 +720,7 @@ document.addEventListener('change', e => {
     const ty = t.dataset.type;
     if (ty === 'int') v = Math.max(0, Math.round(+v || 0));
     else if (ty === 'num') v = Math.max(0, +v || 0);
+    else if (ty === 'minnull') v = String(v).trim() === '' ? null : Math.max(0, +String(v).replace(',', '.') || 0) / 60;
     else if (ty === 'numnull') v = String(v).trim() === '' ? null : Math.max(0, +v || 0);
     else if (ty === 'intnull') v = String(v).trim() === '' ? null : Math.max(0, Math.round(+v || 0));
     else if (ty === 'list') v = String(v).split(/[,;\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean);
@@ -729,7 +733,8 @@ document.addEventListener('change', e => {
     }
     setPath(t.dataset.path, v);
     remember(snapC);
-    if (ty === 'numnull' || ty === 'intnull') t.classList.toggle('missing', v == null);
+    if (ty === 'numnull' || ty === 'intnull' || ty === 'minnull') t.classList.toggle('missing', v == null);
+    if (ty === 'minnull') { const msg = document.getElementById(t.id + '-msg'); if (msg) msg.textContent = v ? fmtHrs(v) : ''; }
     const re = t.hasAttribute('data-rerender') || t.hasAttribute('data-rerender-nav') || ['calendar.hours'].some(p => t.dataset.path.startsWith(p)) || t.dataset.path.endsWith('.cmin') || t.dataset.path.endsWith('.cmax') || t.dataset.path.endsWith('.preds');
     changed(re);
     return;

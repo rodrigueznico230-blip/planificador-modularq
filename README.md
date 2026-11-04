@@ -4,7 +4,7 @@ Programa la fabricación de varios proyectos de construcción modular a la vez y
 
 ## Qué hace
 
-- **Programa** cada unidad hora hábil por hora hábil respetando precedencias, capacidad de estaciones, especialidades, cuadrillas mínima y máxima, disponibilidad de cada operario y esperas de curado o secado.
+- **Programa** cada unidad en intervalos de 15 minutos hábiles respetando precedencias, capacidad de estaciones, especialidades, cuadrillas mínima y máxima, disponibilidad de cada operario y esperas de curado o secado.
 - **Resumen** con el estado de cada proyecto contra su compromiso, alertas y ocupación de estaciones.
 - **Gantt** por proyecto (con tareas), por estación y por operario.
 - **Carga de operarios** por día o semana, por persona y por especialidad.
