@@ -54,4 +54,8 @@ Usa el proyecto **modularq** (`ptehldwrmwaigvhgpiwk`) y sus cuentas, perfiles y 
 
 El plan vive en la fila `principal` de `public.planner_plans`. La columna `version` aumenta en cada guardado y evita que una edición pise a otra sin aviso. La primera vez que un administrador ingresa, la app crea esa fila con los datos que tenga en pantalla.
 
+### Datos importados de modularq-procesos
+
+`supabase/importar-desde-procesos.sql` arma el plan con los 10 formatos de la app de procesos (más el flujo de DTS, cuyo modelo no tiene formato) y los 8 proyectos activos. Cada fase pasa a ser una estación, se omiten planos, acopios y bases de hormigón (no ocupan la planta) y las precedencias se conservan saltando esos pasos. Los tiempos quedan vacíos para cargarlos en **Modelos y tareas**.
+
 La clave de `src/config.js` es la clave **publicable**: es segura en el navegador porque el acceso lo controlan las políticas RLS.
