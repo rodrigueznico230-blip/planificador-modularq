@@ -22,14 +22,21 @@ const DOW1 = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
 /* ---------------- Estado ---------------- */
 let S, R;
+const CLOUD_CACHE = 'planificador-modularq-nube';
+let fromCloudCache = false;
 function load() {
   try {
+    // Con sesión iniciada se muestra al instante la última copia de la nube; luego se sincroniza.
+    if (window.PLAN_CONFIG && localStorage.getItem('planificador-modularq-auth')) {
+      const c = JSON.parse(localStorage.getItem(CLOUD_CACHE) || 'null');
+      if (c && c.data && c.data.calendar) { fromCloudCache = true; return c.data; }
+    }
     const raw = localStorage.getItem(STORE);
     if (raw) { const o = JSON.parse(raw); if (o && o.calendar && o.projects) return o; }
   } catch (e) { /* almacenamiento no disponible */ }
   return clone(window.PLAN_SAMPLE);
 }
-function persist() { try { localStorage.setItem(STORE, JSON.stringify(S)); storageOk = true; } catch (e) { storageOk = false; } }
+function persist() { if (document.body.classList.contains('cloud')) return; try { localStorage.setItem(STORE, JSON.stringify(S)); storageOk = true; } catch (e) { storageOk = false; } }
 S = load();
 S.balance = S.balance || {};
 S.ui = S.ui || { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
@@ -126,6 +133,34 @@ function toast(msg, undo) {
   const b = el.querySelector('[data-undo]');
   if (b) b.onclick = () => { const ui = S.ui; S = undo; S.ui = ui; changed(true); el.classList.add('hidden'); };
   clearTimeout(toastT); toastT = setTimeout(() => el.classList.add('hidden'), 6000);
+}
+
+/* ---------------- Catálogo de modelos (mismo orden que modularq-procesos) ---------------- */
+const CATALOG = [
+  { key: 'Planta Libre', hint: 'Una unidad, distintos equipamientos', models: ['Planta Libre', 'Planta Libre con toilette', 'Planta Libre con toilette y kitchenette', 'Planta Libre con toilette, ducha y kitchenette'] },
+  { key: 'Hermanados', hint: 'Módulos unidos en planta', models: ['Hermanados de 2 cuerpos', 'Hermanado en L', 'Hermanados de 4 cuerpos'] },
+  { key: 'Sanitarios', hint: 'Núcleos húmedos completos', models: ['Sanitario con boxes de ducha, inodoros y mingitorios', 'Sanitario mixto'] },
+  { key: 'Otros módulos', hint: 'Usos específicos', models: ['Módulo 6x3 con baño completo y kitchenette', 'Módulo Garita de Seguridad'] },
+  { key: 'Alta Montaña', hint: 'Estructura y envolvente reforzadas', models: ['Hermanado de 10 módulos', 'Planta Libre reforzada'] },
+  { key: 'Personalizado', hint: 'Modelo a medida, con nombre propio', models: [] }
+];
+const norm = t => String(t || '').trim().toLowerCase();
+const modelType = m => (CATALOG.some(c => c.key === m.type) ? m.type : 'Personalizado');
+/* Devuelve [{cat, items:[{name, model|null}]}] respetando el orden del catálogo */
+function catalogGroups() {
+  return CATALOG.map(c => {
+    const own = S.models.filter(m => modelType(m) === c.key);
+    const items = c.models.map(name => ({ name, model: own.find(m => norm(m.name) === norm(name)) || null }));
+    own.filter(m => !c.models.some(n => norm(n) === norm(m.name))).sort((a, b) => a.name.localeCompare(b.name, 'es'))
+      .forEach(m => items.push({ name: m.name, model: m }));
+    return { cat: c, items };
+  });
+}
+function modelOptions(selectedId) {
+  return catalogGroups().map(g => {
+    const opts = g.items.filter(it => it.model).map(it => `<option value="${esc(it.model.id)}" ${it.model.id === selectedId ? 'selected' : ''}>${esc(it.model.name)}</option>`).join('');
+    return opts ? `<optgroup label="${esc(g.cat.key)}">${opts}</optgroup>` : '';
+  }).join('');
 }
 
 /* ---------------- Tiempos faltantes ---------------- */
@@ -322,7 +357,7 @@ views.gantt = () => {
     const L = x(R.cal.posStart(s)), Wd = Math.max(3, x(R.cal.posEnd(e)) - L - 1);
     return `<div class="g-bar ${cls}" style="left:${L}px;width:${Wd}px;background:${colorVar(i)};color:${inkVar(i)}" ${tipAttr(tipHtml)}>${Wd > 26 ? esc(label) : ''}</div>`;
   };
-  const row = (label, inner, cls = '', attrs = '') => `<div class="g-row ${cls}" ${attrs}><div class="g-label" style="width:${LW}px">${label}</div><div class="g-track" style="width:${W}px">${nonwork}${todayLine}${inner}</div></div>`;
+  const row = (label, inner, cls = '', attrs = '') => `<div class="g-row ${cls}" ${attrs}><div class="g-label" style="width:${LW}px">${label}</div><div class="g-track" style="width:${W}px">${inner}</div></div>`;
   const taskTip = (x_, pi) => {
     const crew = [...x_.crew].map(wi => R.workers[wi].name);
     return `<b>${esc(x_.tpl.id)} ${esc(x_.tpl.name)}</b><br>${esc(R.projects[pi].name)}, unidad ${x_.unit.n}<br>Estación ${esc(x_.tpl.station)}, ${esc(x_.tpl.skill || 'espera')}<br>${fmt(slotMs(x_.start))} → ${fmt(endMs(x_.laborEnd || x_.end))}<br>${nf1.format(x_.hh)} HH${x_.wait ? `, espera ${x_.wait} h` : ''}${crew.length ? `<br>Operarios: ${esc(crew.join(', '))}` : ''}`;
@@ -397,7 +432,7 @@ views.gantt = () => {
     estaciones: 'Cada fila es un puesto físico de la estación (según su capacidad). Muestra qué unidad ocupa cada puesto y cuándo se libera.',
     operarios: 'Las barras muestran en qué tarea trabaja cada operario, hora por hora. El porcentaje es su utilización sobre las horas disponibles.'
   }[mode];
-  return pageHead('Programa de producción', sub) + toolbar + card(`<div class="gantt overflow-auto rounded-lg" style="max-height:calc(100vh - 17rem)">${head}${body || `<div class="p-6 text-sm text-ink-2">No hay unidades programadas.</div>`}</div>`) + `<div class="mt-3 flex flex-wrap items-center gap-4 text-xs text-ink-3">${legend}<span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm" style="background:rgb(var(--nonwork));box-shadow:inset 0 0 0 1px rgb(var(--line))"></span>Día no laborable</span><span class="inline-flex items-center gap-1.5"><span class="inline-block w-0 h-3 border-l-2 border-dashed border-ink-2"></span>Compromiso</span><span class="inline-flex items-center gap-1.5"><span class="inline-block w-0 h-3 border-l-2 border-accent"></span>Hoy (${todayIn ? fmt(today) : 'fuera del rango'})</span></div>`;
+  return pageHead('Programa de producción', sub) + toolbar + card(`<div class="gantt overflow-auto rounded-lg" style="max-height:calc(100vh - 17rem)">${head}${body ? `<div class="relative"><div class="absolute top-0 bottom-0 pointer-events-none" style="left:${LW}px;width:${W}px" aria-hidden="true">${nonwork}${todayLine}</div><div class="relative">${body}</div></div>` : ''}${body ? '' : `<div class="p-6 text-sm text-ink-2">No hay unidades programadas.</div>`}</div>`) + `<div class="mt-3 flex flex-wrap items-center gap-4 text-xs text-ink-3">${legend}<span class="inline-flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm" style="background:rgb(var(--nonwork));box-shadow:inset 0 0 0 1px rgb(var(--line))"></span>Día no laborable</span><span class="inline-flex items-center gap-1.5"><span class="inline-block w-0 h-3 border-l-2 border-dashed border-ink-2"></span>Compromiso</span><span class="inline-flex items-center gap-1.5"><span class="inline-block w-0 h-3 border-l-2 border-accent"></span>Hoy (${todayIn ? fmt(today) : 'fuera del rango'})</span></div>`;
 };
 
 /* ---------- Carga de operarios ---------- */
@@ -528,7 +563,7 @@ views.equilibrado = () => {
     <td class="px-3 text-right num">${x.wait ? nf0.format(x.wait) : '—'}</td>
     <td class="px-3 pr-5"><div class="flex items-center gap-2"><div class="h-2 w-28 rounded-sm bg-surface-2 overflow-hidden"><div class="h-full ${x === bnId ? 'bg-signal' : 'bg-accent'}" style="width:${Math.min(100, x.tc / b.TT * 100)}%"></div></div><span class="text-xs num text-ink-2">${pct(x.tc / b.TT)}</span></div></td></tr>`).join('');
 
-  const modelSel = `<label for="balModel" class="sr-only">Modelo</label><select id="balModel" class="fld w-80 max-w-full" data-ui="model">${S.models.map(x => `<option value="${esc(x.id)}" ${x.id === m.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
+  const modelSel = `<label for="balModel" class="sr-only">Modelo</label><select id="balModel" class="fld w-80 max-w-full" data-ui="model">${modelOptions(m.id)}</select>`;
   const inputs = `<div class="flex flex-wrap items-end gap-4 mb-4">${modelSel}
     <label class="text-sm text-ink-2" for="balDemand">Demanda (unidades por mes)<input id="balDemand" class="fld mt-1 w-40 num" type="number" min="0.1" step="0.5" value="${b.B.demand}" data-bal="demand"></label>
     <label class="text-sm text-ink-2" for="balHours">Horas disponibles por mes<input id="balHours" class="fld mt-1 w-40 num" type="number" min="1" step="1" value="${b.B.hours}" data-bal="hours"></label>
@@ -552,7 +587,7 @@ views.proyectos = () => {
       <td class="pl-4 pr-2 py-2">${swatch(i, 'w-3 h-3')}</td>
       <td class="px-2 min-w-56"><label class="sr-only" for="p${i}n">Nombre</label><input id="p${i}n" class="fld bare font-medium" value="${esc(p.name)}" data-path="projects.${i}.name"></td>
       <td class="px-2 min-w-36"><label class="sr-only" for="p${i}c">Cliente</label><input id="p${i}c" class="fld bare" value="${esc(p.client || '')}" data-path="projects.${i}.client" placeholder="Cliente"></td>
-      <td class="px-2 min-w-56"><label class="sr-only" for="p${i}m">Modelo</label><select id="p${i}m" class="fld" data-path="projects.${i}.model" data-rerender>${S.models.map(m => `<option value="${esc(m.id)}" ${m.id === p.model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></td>
+      <td class="px-2 min-w-56"><label class="sr-only" for="p${i}m">Modelo</label><select id="p${i}m" class="fld" data-path="projects.${i}.model" data-rerender>${modelOptions(p.model)}</select></td>
       <td class="px-2 w-24"><label class="sr-only" for="p${i}q">Cantidad</label><input id="p${i}q" class="fld num" type="number" min="0" step="1" value="${p.qty}" data-path="projects.${i}.qty" data-type="int"></td>
       <td class="px-2 w-40 align-top pt-2"><label class="sr-only" for="p${i}r">Liberación</label><input id="p${i}r" class="fld" type="date" value="${esc(p.release)}" data-path="projects.${i}.release" aria-describedby="p${i}r-msg"><p id="p${i}r-msg" class="field-msg"></p></td>
       <td class="px-2 w-40 align-top pt-2"><label class="sr-only" for="p${i}d">Compromiso</label><input id="p${i}d" class="fld" type="date" value="${esc(p.due)}" data-path="projects.${i}.due" aria-describedby="p${i}d-msg"><p id="p${i}d-msg" class="field-msg"></p></td>
@@ -571,9 +606,18 @@ views.modelos = () => {
   S.ui.model = m.id;
   const mi = S.models.indexOf(m);
   const errs = E.validateModel(m);
-  const list = S.models.map(x => `<button data-act="pick-model" data-id="${esc(x.id)}" aria-current="${x.id === m.id ? 'page' : 'false'}" class="nav-link whitespace-nowrap"><span>${esc(x.name)}</span><span class="text-xs text-ink-3 num">${x.tasks.length}</span></button>`).join('');
+  const used = id => S.projects.filter(p => p.model === id).length;
+  const list = `<div class="grid sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 divide-y sm:divide-y-0 divide-line">${catalogGroups().map(g => `<section class="p-3 min-w-0" aria-label="${esc(g.cat.key)}">
+      <h2 class="px-2 text-sm font-semibold">${esc(g.cat.key)}</h2><p class="px-2 text-xs text-ink-3 mb-2">${esc(g.cat.hint)}</p>
+      <ul class="space-y-0.5">${g.items.length ? g.items.map(it => it.model
+        ? `<li><button data-act="pick-model" data-id="${esc(it.model.id)}" aria-current="${it.model.id === m.id ? 'page' : 'false'}" class="nav-link w-full text-left !py-1.5"><span class="min-w-0 flex-1 truncate" title="${esc(it.model.name)}">${esc(it.model.name)}</span><span class="text-xs text-ink-3 num" title="${it.model.tasks.length} tareas${used(it.model.id) ? ', ' + used(it.model.id) + ' proyecto(s)' : ''}">${it.model.tasks.length}</span>${modelMissing(it.model) ? '<span class="w-1.5 h-1.5 rounded-full bg-warn flex-none" title="Faltan tiempos"></span>' : ''}</button></li>`
+        : `<li class="flex items-center gap-2 px-3 py-1.5 text-sm text-ink-3" title="Este modelo existe en el catálogo pero no tiene formato cargado en la app de procesos"><span class="min-w-0 flex-1 truncate">${esc(it.name)}</span><span class="text-xs">sin formato</span></li>`).join('') : '<li class="px-3 py-1.5 text-sm text-ink-3">Sin modelos</li>'}</ul></section>`).join('')}</div>`;
   const hh = m.tasks.reduce((a, t) => a + (+t.hh || 0), 0);
-  const rows = m.tasks.map((t, i) => `<tr class="border-t border-line-2">
+  let lastSt = null;
+  const stName = id => (S.stations.find(x => x.id === id) || {}).name || 'Sin estación';
+  const stStats = {};
+  m.tasks.forEach(t => { const o = stStats[t.station] || (stStats[t.station] = { n: 0, hh: 0, miss: 0 }); o.n++; o.hh += +t.hh || 0; if (taskMissing(t)) o.miss++; });
+  const rows = m.tasks.map((t, i) => (t.station !== lastSt ? (lastSt = t.station, `<tr class="bg-surface-2/70 border-t border-line"><td colspan="10" class="pl-4 pr-4 py-2"><div class="flex items-baseline gap-3"><span class="text-xs num text-ink-3 w-8">${esc(t.station || '')}</span><span class="text-sm font-semibold">${esc(stName(t.station))}</span><span class="text-xs text-ink-3">${stStats[t.station].n} tareas, ${nf1.format(stStats[t.station].hh)} HH${stStats[t.station].miss ? `, <span class="text-warn font-medium">${stStats[t.station].miss} sin tiempo</span>` : ''}</span></div></td></tr>`) : '') + `<tr class="border-t border-line-2">
     <td class="pl-4 pr-2 pt-3.5 align-top text-ink-3 num text-xs">${esc(t.id)}</td>
     <td class="px-1 min-w-72 align-top pt-1.5"><label class="sr-only" for="t${i}n">Tarea ${esc(t.id)}</label><input id="t${i}n" class="fld bare" value="${esc(t.name)}" data-path="models.${mi}.tasks.${i}.name"></td>
     <td class="px-1 w-52 align-top pt-1.5"><label class="sr-only" for="t${i}s">Estación</label><select id="t${i}s" class="fld" data-path="models.${mi}.tasks.${i}.station">${S.stations.map(s => `<option value="${esc(s.id)}" ${s.id === t.station ? 'selected' : ''}>${esc(s.id)} ${esc(s.name)}</option>`).join('')}</select></td>
@@ -588,8 +632,8 @@ views.modelos = () => {
   const missHtml = miss ? `<div class="mb-4 rounded-md border border-warn/40 bg-warn-soft px-4 py-3 text-sm leading-relaxed"><b>Faltan ${miss} de ${m.tasks.length} tiempos.</b> Completá las horas-hombre estándar de cada tarea (celdas resaltadas) y las horas de espera de las tareas de secado o curado. Mientras falten, los proyectos con este modelo no se evalúan contra su compromiso.</div>` : '';
   const errHtml = errs.length ? `<div class="mb-4 rounded-md border border-bad/40 bg-bad-soft px-4 py-3 text-sm"><b>Este modelo no se puede programar todavía.</b><ul class="mt-1 list-disc pl-5">${errs.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>` : '';
   return pageHead('Modelos y tareas', 'Un modelo es la receta de fabricación de un tipo de unidad: sus tareas, en qué estación se hacen, qué especialidad requieren, las horas-hombre estándar (Te) y qué tareas deben estar terminadas antes. La espera son horas hábiles de curado, secado o prueba sin mano de obra.', btn(plus + 'Nuevo modelo', 'add-model') + btn('Duplicar modelo', 'dup-model'))
-    + `<nav aria-label="Modelos" class="mb-4 flex gap-1 overflow-x-auto rounded-lg border border-line bg-surface p-1 shadow-sm">${list}</nav>
-    <div class="min-w-0"><div>${missHtml}${errHtml}${card(`<div class="flex flex-wrap items-end gap-3 px-4 pt-4 pb-3"><label class="flex-1 min-w-64 text-xs text-ink-3" for="mName">Nombre del modelo<input id="mName" class="fld mt-1 text-base font-semibold" value="${esc(m.name)}" data-path="models.${mi}.name" data-rerender-nav></label>
+    + `<nav aria-label="Catálogo de modelos" class="mb-4 rounded-lg border border-line bg-surface shadow-sm">${list}</nav>
+    <div class="min-w-0"><div>${missHtml}${errHtml}${card(`<div class="flex flex-wrap items-end gap-3 px-4 pt-4 pb-3"><label class="w-48 text-xs text-ink-3" for="mType">Tipo<select id="mType" class="fld mt-1" data-path="models.${mi}.type" data-rerender>${CATALOG.map(c => `<option ${c.key === modelType(m) ? 'selected' : ''}>${esc(c.key)}</option>`).join('')}</select></label><label class="flex-1 min-w-64 text-xs text-ink-3" for="mName">Nombre del modelo<input id="mName" class="fld mt-1 text-base font-semibold" value="${esc(m.name)}" data-path="models.${mi}.name" data-rerender></label>
       <div class="text-sm text-ink-2 pb-2"><span class="num font-semibold text-ink">${m.tasks.length}</span> tareas, <span class="num font-semibold text-ink">${nf1.format(hh)}</span> HH por unidad${modelMissing(m) ? `, <span class="font-semibold text-warn">${modelMissing(m)} sin tiempo</span>` : ''}</div>
       ${delBtn('del-model', mi, 'Eliminar modelo')}</div>
       <div class="scroll-x"><table class="w-full text-sm" style="min-width:1120px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Código</th><th class="px-1 font-medium">Tarea</th><th class="px-1 font-medium">Estación</th><th class="px-1 font-medium">Especialidad</th><th class="px-1 font-medium text-right">HH</th><th class="px-1 font-medium text-right" title="Cuadrilla mínima">Mín.</th><th class="px-1 font-medium text-right" title="Cuadrilla máxima">Máx.</th><th class="px-1 font-medium text-right" title="Horas hábiles de espera">Espera h</th><th class="px-1 font-medium" title="Códigos separados por coma">Precedentes</th><th></th></tr></thead><tbody>${rows}</tbody></table><datalist id="taskcodes">${m.tasks.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</datalist></div>
@@ -731,7 +775,7 @@ document.addEventListener('click', e => {
     case 'pick-model': S.ui.model = b.dataset.id; changed(true); break;
     case 'add-model': {
       const id = newId('M', S.models);
-      S.models.push({ id, name: 'Modelo nuevo', tasks: [{ id: 'T1', name: 'Primera tarea', station: (S.stations[0] || {}).id, skill: S.skills[0], hh: 4, cmin: 1, cmax: 2, wait: 0, preds: [] }] });
+      S.models.push({ id, name: 'Modelo nuevo', type: 'Personalizado', tasks: [{ id: 'T1', name: 'Primera tarea', station: (S.stations[0] || {}).id, skill: S.skills[0], hh: 4, cmin: 1, cmax: 2, wait: 0, preds: [] }] });
       S.ui.model = id; location.hash = 'modelos'; changed(true); break;
     }
     case 'dup-model': { const c = clone(m); c.id = newId('M', S.models); c.name = m.name + ' (copia)'; S.models.push(c); S.ui.model = c.id; changed(true); break; }
@@ -841,6 +885,7 @@ function notice(html) {
   n.classList.remove('hidden');
 }
 window.PlanApp = {
+  fromCloudCache: () => fromCloudCache,
   toast, notice,
   onChange: fn => changeListeners.push(fn),
   setStatusRenderer: fn => { statusRenderer = fn; renderSaved(); },
@@ -859,4 +904,10 @@ window.PlanApp = {
 recompute();
 render();
 renderSaved();
+
+/* La sincronización (cliente de Supabase) se descarga después de mostrar la app */
+if (window.PLAN_CLOUD_SRC) {
+  const loadCloud = () => { const sc = document.createElement('script'); sc.src = window.PLAN_CLOUD_SRC; sc.async = true; document.head.appendChild(sc); };
+  if ('requestIdleCallback' in window) requestIdleCallback(loadCloud, { timeout: 1200 }); else setTimeout(loadCloud, 1);
+}
 })();

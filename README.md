@@ -24,7 +24,7 @@ src/
   sample.js    datos de ejemplo
   config.js    URL y clave publicable de Supabase
   shell.html   página base
-scripts/build.mjs        arma un único HTML en dist/
+scripts/build.mjs        build de producción (HTML liviano + assets con hash)
 supabase/migrations/     tabla public.planner_plans, RLS y Realtime
 test/engine.test.mjs     pruebas del motor
 ```
@@ -34,9 +34,17 @@ test/engine.test.mjs     pruebas del motor
 ```bash
 npm install
 npm test
-npm run build        # dist/index.html, con nube
-npm run build:local  # dist/local.html, solo navegador
+npm run build        # dist/index.html + dist/assets/, con nube
+npm run build:local  # dist/local.html autocontenido, solo navegador
 ```
+
+## Velocidad de carga
+
+- `index.html` (~10 KB comprimido) trae el CSS en línea y precarga la fuente y el script principal.
+- `assets/app.<hash>.js` (~29 KB comprimido) contiene el motor y la interfaz, minificados.
+- `assets/cloud.<hash>.js` (Supabase, ~31 KB comprimido) se descarga recién cuando la app ya está en pantalla.
+- La fuente Inter se sirve desde el mismo dominio (sin Google Fonts) y todo `/assets/` se guarda en caché por un año.
+- Con sesión iniciada, la app muestra al instante la última copia del plan y solo descarga el plan completo si cambió la versión en la nube.
 
 ## Publicar
 

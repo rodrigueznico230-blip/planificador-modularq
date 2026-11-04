@@ -4,10 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planificador multi-proyecto</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>/*TW*/</style>
+<!--HEAD-->
+<style>/*FONT*//*TW*/</style>
 <style>
 /* Layout: barra superior + navegación lateral + vista operativa (resumen → detalle).
    Paleta: neutros gray de Tailwind, un único acento emerald (chapa prepintada),
@@ -78,7 +76,7 @@
   --h-ink-dark: #ecfdf5; --h-ink-light: #022c22;
 }
 html, body { height: 100%; }
-body { background: rgb(var(--bg)); color: rgb(var(--ink)); font-family: Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: rgb(var(--bg)); color: rgb(var(--ink)); font-family: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 .num, table td, table th { font-variant-numeric: tabular-nums; }
 h1, h2, h3 { text-wrap: balance; }
 :focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; border-radius: 4px; }
@@ -104,7 +102,7 @@ select.fld { padding-right: 1.75rem; }
 /* Gantt */
 .gantt { position: relative; }
 .g-row { display: flex; min-height: 2.25rem; border-bottom: 1px solid rgb(var(--line-2)); }
-.g-row.group { background: rgb(var(--surface-2)); min-height: 2.5rem; }
+.g-row.group { background: rgb(var(--surface-2) / .55); min-height: 2.5rem; }
 .g-label { position: sticky; left: 0; z-index: 3; flex: none; background: rgb(var(--surface)); border-right: 1px solid rgb(var(--line)); display: flex; align-items: center; gap: .5rem; padding: 0 .75rem; font-size: .8125rem; }
 .g-row.group .g-label { background: rgb(var(--surface-2)); font-weight: 600; }
 .g-track { position: relative; flex: none; }
@@ -240,11 +238,6 @@ body.readonly #view [data-act^="add-"], body.readonly #view [data-act^="del-"], 
   </div>
 </dialog>
 
-<script>/*CONFIG*/</script>
-<script>/*ENGINE*/</script>
-<script>/*SAMPLE*/</script>
-<script>/*APP*/</script>
-<!--SUPABASE-->
-<script>/*CLOUD*/</script>
+<!--SCRIPTS-->
 </body>
 </html>

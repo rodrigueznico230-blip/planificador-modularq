@@ -138,9 +138,9 @@
       { id: 'W13', name: 'Gabriel Luna', skills: ['Calidad', 'Electricidad'], pct: 50, active: true }
     ],
     models: [
-      { id: 'M1', name: 'Planta libre (secuencia Vicuña 3PL)', tasks: standard },
-      { id: 'M2', name: 'Módulo sanitario con boxes', tasks: sanitary },
-      { id: 'M3', name: 'Garita de seguridad', tasks: guard }
+      { id: 'M1', name: 'Planta libre (secuencia Vicuña 3PL)', type: 'Planta Libre', tasks: standard },
+      { id: 'M2', name: 'Módulo sanitario con boxes', type: 'Sanitarios', tasks: sanitary },
+      { id: 'M3', name: 'Garita de seguridad', type: 'Otros módulos', tasks: guard }
     ],
     projects: [
       { id: 'P1', name: 'Campamento minero, fase 1', client: 'Cliente A', model: 'M1', qty: 4, release: '2026-11-09', due: '2026-12-04', prio: 1 },

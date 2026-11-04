@@ -3,7 +3,7 @@ module.exports = {
   content: ['./src/shell.html', './src/app.js', './src/cloud.js'],
   safelist: ['bg-ok-soft','bg-warn-soft','bg-bad-soft','text-ok','text-warn','text-bad','bg-bad','bg-warn','bg-line','rotate-90'],
   theme: { extend: {
-    fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] },
+    fontFamily: { sans: ['Inter Variable', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] },
     colors: {
       bg: v('bg'), surface: v('surface'), 'surface-2': v('surface-2'),
       ink: v('ink'), 'ink-2': v('ink-2'), 'ink-3': v('ink-3'),

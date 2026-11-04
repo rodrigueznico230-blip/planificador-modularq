@@ -212,31 +212,37 @@
     let pending = tasks.length;
     let t = 0;
     const maxT = cal.totalSlots;
-    let active = tasks.slice();
+
+    // Lista de disponibles por conteo de precedentes pendientes (evita recorrer todas las tareas en cada hora)
+    for (const x of tasks) { x.succ = []; x.waitPreds = x.preds.length; }
+    for (const x of tasks) for (const p of x.preds) p.succ.push(x);
+    let avail = tasks.filter(x => x.waitPreds === 0);
+    let curing = [];
 
     function leaveIfDone(task, at) {
       const so = task.unit.st[task.st];
       so.done++;
       if (so.done >= so.total && so.in) { so.in = false; so.leave = at; occ[task.st]--; }
     }
+    function finish(x) {
+      x.status = 3; pending--; leaveIfDone(x, x.end);
+      for (const s of x.succ) if (--s.waitPreds === 0) avail.push(s);
+    }
 
     while (pending > 0 && t < maxT) {
       // 1) cerrar esperas terminadas
-      for (const x of active) {
-        if (x.status === 2 && x.end <= t) { x.status = 3; pending--; leaveIfDone(x, x.end); }
+      if (curing.length) {
+        const still = [];
+        for (const x of curing) { if (x.end <= t) finish(x); else still.push(x); }
+        curing = still;
       }
-      active = active.filter(x => x.status !== 3);
       if (!pending) break;
 
       // 2) tareas disponibles
+      avail = avail.filter(x => x.status < 2);
       const ready = [];
-      for (const x of active) {
-        if (x.status === 2) continue;
-        if (t < x.unit.project.relSlot) continue;
-        let ok = true;
-        for (const p of x.preds) if (p.status !== 3) { ok = false; break; }
-        if (ok) ready.push(x);
-      }
+      for (const x of avail) if (t >= x.unit.project.relSlot) ready.push(x);
+      if (!ready.length) { for (let s2 = 0; s2 < stations.length; s2++) occSlots[s2] += occ[s2]; t++; continue; }
       ready.sort((a, b) =>
         (b.status - a.status) ||
         (a.unit.project.prio - b.unit.project.prio) ||
@@ -259,6 +265,7 @@
         if (!canEnter(x)) continue;
         enter(x);
         x.status = 2; x.laborEnd = t; x.end = t + x.wait;
+        curing.push(x);
       }
 
       // 4) asignación de operarios
@@ -311,13 +318,14 @@
         x.rem -= done;
         if (x.rem <= 1e-6) {
           x.rem = 0; x.status = 2; x.laborEnd = t + 1; x.end = t + 1 + x.wait;
+          curing.push(x);
         }
       }
       for (let s = 0; s < stations.length; s++) occSlots[s] += occ[s];
       t++;
     }
     // cerrar esperas que terminan en el último slot
-    for (const x of active) if (x.status === 2 && x.end <= t + 10000) { x.status = 3; pending--; leaveIfDone(x, x.end); }
+    for (const x of curing) if (x.status === 2) finish(x);
 
     const unscheduled = tasks.filter(x => x.status !== 3);
     if (unscheduled.length) errors.push(`${unscheduled.length} tarea(s) no entraron en el horizonte de ${MAX_DAYS} días. Revisá la dotación o el calendario.`);

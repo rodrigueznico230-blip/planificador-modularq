@@ -10,6 +10,7 @@
   const CFG = window.PLAN_CONFIG;
   const API = window.PlanApp;
   if (!CFG || !CFG.supabaseUrl || !window.supabase || !API) return;
+  if (window.__planCloudStarted) return; window.__planCloudStarted = true;
 
   const $ = s => document.querySelector(s);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,6 +18,10 @@
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'planificador-modularq-auth' }
   });
   const PLAN_ID = CFG.planId || 'principal';
+  const CACHE = 'planificador-modularq-nube';
+  const readCache = () => { try { return JSON.parse(localStorage.getItem(CACHE) || 'null'); } catch (e) { return null; } };
+  const writeCache = (version, data) => { try { localStorage.setItem(CACHE, JSON.stringify({ version, data })); } catch (e) { /* sin espacio */ } };
+  const dropCache = () => { try { localStorage.removeItem(CACHE); } catch (e) { /* nada */ } };
 
   const st = {
     session: null, profile: null, version: null, dirty: false, saving: false,
@@ -84,6 +89,7 @@
   async function logout() {
     await flush();
     await sb.auth.signOut();
+    dropCache(); document.body.classList.remove('cloud');
   }
 
   /* ---------------- Carga y guardado ---------------- */
@@ -93,17 +99,28 @@
     st.profile = error ? null : data;
   }
   async function loadPlan(silent) {
-    const { data, error } = await sb.from('planner_plans').select('data, version, updated_at').eq('id', PLAN_ID).maybeSingle();
+    // Primero se consulta solo la versión: si coincide con la copia local no se descarga el plan completo.
+    const cached = readCache();
+    const head = await sb.from('planner_plans').select('version').eq('id', PLAN_ID).maybeSingle();
+    if (head.error) { API.toast('No se pudo leer el plan de la nube: ' + head.error.message); return; }
+    if (head.data && cached && cached.version === head.data.version) {
+      st.version = cached.version; st.dirty = false; st.conflict = false;
+      if (!API.fromCloudCache()) API.replaceState(cached.data, { keepUi: true });
+      document.body.classList.add('cloud'); API.refreshStatus(); return;
+    }
+    const { data, error } = head.data ? await sb.from('planner_plans').select('data, version').eq('id', PLAN_ID).maybeSingle() : { data: null, error: null };
     if (error) { API.toast('No se pudo leer el plan de la nube: ' + error.message); return; }
+    document.body.classList.add('cloud');
     if (data) {
       st.version = data.version; st.dirty = false; st.conflict = false;
+      writeCache(data.version, data.data);
       API.replaceState(data.data, { keepUi: true });
       if (!silent) API.toast('Plan cargado desde la nube.');
     } else if (isAdmin()) {
       const plan = API.exportState();
       const { data: ins, error: e2 } = await sb.from('planner_plans').insert({ id: PLAN_ID, name: plan.planName || '', data: plan }).select('version').single();
       if (e2) { API.toast('No se pudo crear el plan en la nube: ' + e2.message); return; }
-      st.version = ins.version; st.lastSaved = new Date();
+      st.version = ins.version; st.lastSaved = new Date(); writeCache(ins.version, plan);
       API.toast('Se creó el plan compartido en la nube con los datos actuales.');
     }
     API.refreshStatus();
@@ -128,6 +145,7 @@
     }
     if (!data || !data.length) { st.conflict = true; showConflict(); API.refreshStatus(); return; }
     st.version = data[0].version; st.dirty = false; st.conflict = false; st.lastSaved = new Date();
+    writeCache(st.version, plan);
     API.refreshStatus();
   }
   async function flush() { clearTimeout(st.timer); if (st.dirty && !st.conflict) await save(); }
@@ -151,7 +169,7 @@
         if (!v || v <= st.version) return;
         if (Date.now() - st.ownWrite < 3000 && st.saving) return;
         if (st.dirty) { st.conflict = true; showConflict(); API.refreshStatus(); return; }
-        st.version = v; API.replaceState(payload.new.data, { keepUi: true });
+        st.version = v; writeCache(v, payload.new.data); API.replaceState(payload.new.data, { keepUi: true });
         API.toast('Otra persona actualizó el plan: ya ves la última versión.');
       })
       .subscribe();
@@ -164,6 +182,7 @@
     if (!session) {
       st.profile = null; st.version = null; st.dirty = false; st.conflict = false;
       if (st.channel) { sb.removeChannel(st.channel); st.channel = null; }
+      if (API.fromCloudCache() || document.body.classList.contains('cloud')) { dropCache(); location.reload(); return; }
       API.setReadOnly(false); renderAccount(); API.refreshStatus(); return;
     }
     await loadProfile();
