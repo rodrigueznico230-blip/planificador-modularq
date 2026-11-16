@@ -167,7 +167,7 @@
       // especialidades suficientes
       for (const t of m.tasks) {
         if ((+t.hh || 0) <= 0) continue;
-        if (pr.crews.length && (t.pos || []).length) continue; // la hace la cuadrilla asignada
+        if (pr.crews.length && effPos(S, t).length) continue; // la hace la cuadrilla asignada
         const q = workers.filter(w => w.skillSet.has(t.skill)).length;
         if (q < Math.max(1, +t.cmin || 1)) {
           pr.excluded = true;
@@ -202,8 +202,9 @@
             start: null, laborEnd: null, end: null, crew: new Set(), lastCrew: [], workedSlots: 0, fixed: null
           };
           // Puestos fijos de la cuadrilla: la tarea la hacen exactamente esos operarios
-          if (crew && (t.pos || []).length) {
-            const ids = [...new Set(t.pos)].map(ps => crew.idx[POS[ps]]);
+          const tpos = crew ? effPos(S, t) : [];
+          if (crew && tpos.length) {
+            const ids = [...new Set(tpos)].map(ps => crew.idx[POS[ps]]);
             if (ids.every(i => i != null)) { task.fixed = ids; task.cmin = task.cmax = ids.length; }
           }
           unit.tasks.push(task);
@@ -431,7 +432,19 @@
     };
   }
 
-  const api = { schedule, makeCalendar, validateModel, positionalWeights, parseISO, toISO };
+  /* Clave de actividad para cruzar la misma tarea entre formatos: sin tildes, mayúsculas ni espacios extra */
+  function normKey(name) {
+    return String(name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  /* Puestos efectivos de una tarea: los propios del modelo o, si no tiene, el estándar de su estación */
+  function effPos(S, t) {
+    if (t.pos && t.pos.length) return t.pos.filter(p => p !== '0'); // '0' = sin puesto en este modelo
+    const st = (S.stdPos || {})[t.station];
+    return (st && st[normKey(t.name)]) || [];
+  }
+
+  const api = { schedule, normKey, effPos, makeCalendar, validateModel, positionalWeights, parseISO, toISO };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PlanEngine = api;
 })(this);

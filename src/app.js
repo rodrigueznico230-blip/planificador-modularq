@@ -43,7 +43,7 @@ function persist() { if (document.body.classList.contains('cloud')) return; try 
 S = load();
 S.balance = S.balance || {};
 S.ui = S.ui || { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
-S.crews = S.crews || [];
+S.crews = S.crews || []; S.stdPos = S.stdPos || {};
 
 function recompute() {
   R = E.schedule(S);
@@ -771,7 +771,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const act = b.dataset.act, i = +b.dataset.i;
-  const viewOnly = ['toggle-unit', 'expand-all', 'collapse-all', 'pick-model', 'copy-json', 'copy-csv', 'suggest-crew', 'hours-from-cal', 'sheet-day', 'print-sheet'];
+  const viewOnly = ['toggle-unit', 'expand-all', 'collapse-all', 'pick-model', 'copy-json', 'copy-csv', 'suggest-crew', 'hours-from-cal', 'sheet-day', 'print-sheet', 'crew-tab'];
   if (document.body.classList.contains('readonly') && !viewOnly.includes(act)) { toast('Solo lectura: tu rol no permite editar el plan.'); return; }
   const snap = clone(S);
   queueMicrotask(() => remember(snap));
@@ -824,9 +824,43 @@ document.addEventListener('click', e => {
     }
     case 'toggle-pos': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
-      const t = mm.tasks[i]; const ps = new Set(t.pos || []);
+      const t = mm.tasks[i]; const ps = new Set(E.effPos(S, t));
       ps.has(b.dataset.p) ? ps.delete(b.dataset.p) : ps.add(b.dataset.p);
-      t.pos = [...ps].sort(); changed(true); break;
+      const next = [...ps].sort(), std = stdOf(t).slice().sort();
+      t.pos = samePos(next, std) ? [] : (next.length ? next : ['0']);
+      changed(true); break;
+    }
+    case 'reset-pos': {
+      const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
+      mm.tasks[i].pos = []; changed(true); break;
+    }
+    case 'crew-tab': S.ui.crewTab = b.dataset.t; changed(true); break;
+    case 'toggle-std': {
+      const st = S.ui.stdStation; const k = b.dataset.k;
+      S.stdPos = S.stdPos || {}; const map = S.stdPos[st] || (S.stdPos[st] = {});
+      const ps = new Set(map[k] || []);
+      ps.has(b.dataset.p) ? ps.delete(b.dataset.p) : ps.add(b.dataset.p);
+      if (ps.size) map[k] = [...ps].sort(); else delete map[k];
+      changed(true); break;
+    }
+    case 'std-auto': {
+      const ref = S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null;
+      const n = stdAutoAssign(S.ui.stdStation, ref);
+      changed(true); toast(`${n} actividades de ${S.ui.stdStation} repartidas entre los 3 puestos, para todos los formatos.`, snap); break;
+    }
+    case 'std-auto-all': {
+      const ref = S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null;
+      let n = 0; S.stations.forEach(st => { if (stdActivities(st.id).length) n += stdAutoAssign(st.id, ref); });
+      changed(true); toast(`${n} actividades repartidas en todas las estaciones.`, snap); break;
+    }
+    case 'std-clear': {
+      if (S.stdPos) delete S.stdPos[S.ui.stdStation];
+      changed(true); toast(`Reparto de ${S.ui.stdStation} quitado.`, snap); break;
+    }
+    case 'std-fill-times': {
+      const tr = timeRef(); let n = 0;
+      S.models.forEach(m => m.tasks.forEach(t => { if (t.skill && (t.hh == null || t.hh === '')) { const r = tr.get(E.normKey(t.name)); if (r && r.min > 0) { t.hh = r.min / 60; n++; } } }));
+      changed(true); toast(`${n} tiempos completados desde el cronometraje. Los tiempos ya cargados no se tocaron.`, snap); break;
     }
     case 'auto-assign': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
@@ -835,7 +869,7 @@ document.addEventListener('click', e => {
     }
     case 'clear-assign': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
-      mm.tasks.forEach(t => { t.pos = []; }); changed(true); toast('Reparto quitado.', snap); break;
+      mm.tasks.forEach(t => { t.pos = []; }); changed(true); toast(`${mm.name} vuelve a usar el estándar de cada estación.`, snap); break;
     }
     case 'sheet-day': if (b.dataset.d) { S.ui.sheetDay = b.dataset.d; changed(true); } break;
     case 'print-sheet': try { window.print(); } catch (e) { toast('Tu navegador no permite imprimir desde acá.'); } break;
@@ -902,7 +936,7 @@ function doImport(text) {
     const o = JSON.parse(text);
     if (!o.calendar || !Array.isArray(o.projects) || !Array.isArray(o.models) || !Array.isArray(o.workers) || !Array.isArray(o.stations)) throw new Error('Faltan secciones: calendar, projects, models, workers o stations.');
     const snap = clone(S);
-    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.crews = S.crews || []; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
+    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.crews = S.crews || []; S.stdPos = S.stdPos || {}; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
     changed(true); $('#dlgData').close(); toast('Plan cargado.', snap);
     msg.textContent = '';
   } catch (err) {
@@ -940,7 +974,7 @@ window.PlanApp = {
   exportState: () => { const c = clone(S); delete c.ui; return c; },
   replaceState: (data, opts) => {
     const ui = S.ui; S = clone(data); S.ui = (opts && opts.keepUi) ? ui : (S.ui || ui);
-    S.balance = S.balance || {}; S.skills = S.skills || []; S.crews = S.crews || [];
+    S.balance = S.balance || {}; S.skills = S.skills || []; S.crews = S.crews || []; S.stdPos = S.stdPos || {};
     history.length = 0;
     changed(true, true, true);
   },

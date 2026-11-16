@@ -66,3 +66,25 @@ test('con dos cuadrillas el proyecto se divide en lotes consecutivos', () => {
   const r = E.schedule(s);
   assert.deepEqual(r.projects[0].units.map(u => u.crew), ['C1', 'C1', 'C2', 'C2']);
 });
+
+test('el estándar por estación se aplica a todos los formatos y el ajuste del modelo lo reemplaza', () => {
+  const s = withTimes();
+  s.crews = [{ id: 'C1', name: 'Cuadrilla 1', members: ['W1', 'W2', 'W6'] }];
+  const m = s.models.find(x => x.id === 'M2');
+  const work = m.tasks.filter(t => t.skill);
+  s.stdPos = {};
+  work.forEach(t => { (s.stdPos[t.station] = s.stdPos[t.station] || {})[E.normKey(t.name)] = ['B']; });
+  work[0].pos = ['A', 'C'];       // ajuste propio
+  work[1].pos = ['0'];            // sin puesto en este modelo
+  s.projects = [{ id: 'P1', name: 'X', model: 'M2', qty: 1, release: s.calendar.start, due: '2027-03-01', prio: 1, crews: ['C1'] }];
+  const r = E.schedule(s);
+  assert.deepEqual(r.errors, []);
+  const ids = t => [...t.crew].map(i => r.workers[i].id).sort();
+  for (const t of r.tasks) {
+    if (!t.hh || !t.tpl.skill) continue;
+    if (t.tpl === work[0]) assert.deepEqual(ids(t), ['W1', 'W6']);
+    else if (t.tpl === work[1]) assert.equal(t.fixed, null);
+    else assert.deepEqual(ids(t), ['W2'], t.key);
+  }
+  assert.equal(E.normKey('  Colocación de PUERTA. '), 'colocacion de puerta');
+});
