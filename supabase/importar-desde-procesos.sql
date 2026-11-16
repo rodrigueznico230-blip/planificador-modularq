@@ -15,11 +15,10 @@ src as (
     and not (fm.f ? ((p.data->>'tipo') || '|' || (p.data->>'modelo')))
 ),
 st(sid, sname, ord) as (values
-  ('E1','Estructura metálica',1),('E2','Acondicionamiento metálico',2),('E3','Estructura interna',3),
-  ('E4','Paneles y cerramientos',4),('E5','Piso',5),('E6','Aberturas: puertas',6),('E7','Aberturas: ventanas',7),
-  ('E8','Divisiones interiores',8),('E9','Terminaciones antes de subcontratistas',9),('E10','Mueblería',10),
-  ('E11','Instalación de carpintería',11),('E12','Electricidad',12),('E13','Instalación sanitaria',13),
-  ('E14','Terminaciones',14),('E15','Correcciones',15),('E16','Control final y limpieza',16)),
+  ('E1','Estructura metálica',1),('E2','Paneles y cerramientos',2),('E3','Piso',3),('E4','Aberturas: puertas',4),
+  ('E5','Aberturas: ventanas',5),('E6','Divisiones interiores',6),('E7','Terminaciones antes de subcontratistas',7),
+  ('E8','Instalación de carpintería',8),('E9','Electricidad',9),('E10','Instalación sanitaria',10),
+  ('E11','Terminaciones',11),('E12','Correcciones',12),('E13','Control final y limpieza',13)),
 n as (
   select s.key, e->>'id' as nid, e->>'type' as typ, coalesce(e->>'kind','') as kind, btrim(e->>'label') as label, o as ord,
     lower(btrim(regexp_replace(e->>'phase', '^Fase\s*\d+\s*·\s*', ''))) as ph
@@ -28,11 +27,11 @@ n as (
 n2 as (
   select n.*,
     case
-      when ph like 'estructura met%' then 'E1' when ph like 'acondicionamiento%' then 'E2' when ph like 'estructura interna%' then 'E3'
-      when ph like 'paneles%' then 'E4' when ph = 'piso' then 'E5' when ph like '%puertas%' then 'E6' when ph like '%ventanas%' then 'E7'
-      when ph like 'divisiones%' then 'E8' when ph like 'termina%antes%' then 'E9' when ph like 'muebler%' then 'E10'
-      when ph like 'instalación carpinter%' then 'E11' when ph like 'electricidad%' then 'E12' when ph like 'instalación sanit%' then 'E13'
-      when ph like 'terminaciones%' then 'E14' when ph like 'correcciones%' then 'E15' when ph like 'control final%' then 'E16'
+      when ph like 'estructura met%' or ph like 'acondicionamiento%' or ph like 'estructura interna%' then 'E1'
+      when ph like 'paneles%' then 'E2' when ph = 'piso' then 'E3' when ph like '%puertas%' then 'E4' when ph like '%ventanas%' then 'E5'
+      when ph like 'divisiones%' then 'E6' when ph like 'termina%antes%' then 'E7'
+      when ph like 'muebler%' or ph like 'instalación carpinter%' then 'E8' when ph like 'electricidad%' then 'E9' when ph like 'instalación sanit%' then 'E10'
+      when ph like 'terminaciones%' then 'E11' when ph like 'correcciones%' then 'E12' when ph like 'control final%' then 'E13'
     end as station,
     (typ = 'task' and kind <> 'AM' and label !~* '^acopio' and ph not like 'planos%' and ph not like 'bases de hormig%') as keep
   from n
@@ -41,14 +40,14 @@ k as (
   select n2.*, 'T' || row_number() over (partition by key order by ord) as code,
     case
       when kind = 'DE' then ''
-      when station = 'E16' then case when label ~* 'limpieza' then 'Limpieza' else 'Calidad' end
+      when station = 'E13' then case when label ~* 'limpieza' then 'Limpieza' else 'Calidad' end
       when kind = 'IN' then 'Calidad'
       when label ~* 'jaula exterior|condensadora' then 'Soldadura'
-      when station = 'E12' then 'Electricidad'
-      when station = 'E13' then 'Sanitaria'
-      when station in ('E10','E11') then 'Carpintería'
+      when station = 'E9' then 'Electricidad'
+      when station = 'E10' then 'Sanitaria'
+      when station = 'E8' then 'Carpintería'
       when label ~* '^(pintado|pintura|segunda mano|primera mano)' then 'Pintura'
-      when station in ('E1','E2','E3') then 'Soldadura'
+      when station = 'E1' then 'Soldadura'
       else 'Montaje'
     end as skill
   from n2 where keep and station is not null
