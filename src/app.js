@@ -744,6 +744,13 @@ document.addEventListener('change', e => {
     return;
   }
   if (t.dataset.ui) { S.ui[t.dataset.ui] = t.value; changed(true); return; }
+  if (t.dataset.designate != null) {
+    if (!t.value) return;
+    const snapD = clone(S); const [kind, ...rest] = t.dataset.designate.split(':'); const key = rest.join(':');
+    if (kind === 's') { S.stdPos = S.stdPos || {}; const map = S.stdPos[S.ui.stdStation] || (S.stdPos[S.ui.stdStation] = {}); map[key] = togglePos(map[key] || [], '@' + t.value); }
+    else { const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0]; const tk = mm.tasks[+key]; const next = togglePos(E.effPos(S, tk), '@' + t.value); tk.pos = samePos(next, stdOf(tk).slice().sort()) ? [] : next; }
+    remember(snapD); changed(true); return;
+  }
   if (t.dataset.crewmember) {
     if (document.body.classList.contains('readonly')) { render(); return; }
     const snapC = clone(S); const [ci, k] = t.dataset.crewmember.split(':').map(Number);
@@ -824,9 +831,8 @@ document.addEventListener('click', e => {
     }
     case 'toggle-pos': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
-      const t = mm.tasks[i]; const ps = new Set(E.effPos(S, t));
-      ps.has(b.dataset.p) ? ps.delete(b.dataset.p) : ps.add(b.dataset.p);
-      const next = [...ps].sort(), std = stdOf(t).slice().sort();
+      const t = mm.tasks[i];
+      const next = togglePos(E.effPos(S, t), b.dataset.p), std = stdOf(t).slice().sort();
       t.pos = samePos(next, std) ? [] : (next.length ? next : ['0']);
       changed(true); break;
     }
@@ -838,9 +844,8 @@ document.addEventListener('click', e => {
     case 'toggle-std': {
       const st = S.ui.stdStation; const k = b.dataset.k;
       S.stdPos = S.stdPos || {}; const map = S.stdPos[st] || (S.stdPos[st] = {});
-      const ps = new Set(map[k] || []);
-      ps.has(b.dataset.p) ? ps.delete(b.dataset.p) : ps.add(b.dataset.p);
-      if (ps.size) map[k] = [...ps].sort(); else delete map[k];
+      const next = togglePos(map[k] || [], b.dataset.p);
+      if (next.length) map[k] = next; else delete map[k];
       changed(true); break;
     }
     case 'std-auto': {

@@ -1,6 +1,8 @@
 /* ---------- Cuadrillas: equipos de 3, reparto de tareas por puesto (Yamazumi) y hoja diaria ---------- */
 const POS = ['A', 'B', 'C'];
 const POS_LABEL = { A: 'Operario 1', B: 'Operario 2', C: 'Operario 3' };
+/* Asignación: 'A'|'B'|'C' puestos de la cuadrilla, '@<id>' operario designado (de la cuadrilla o no), '*' cualquier operario habilitado */
+const isSupport = x => x === '*' || (typeof x === 'string' && x[0] === '@');
 const posVar = i => `var(--s${i + 1})`;
 const posInk = i => `var(--s${i + 1}-ink)`;
 const workerById = id => S.workers.find(w => w.id === id);
@@ -17,18 +19,22 @@ function hhm(minutes) {
 /* Carga por puesto de un modelo: cada operario del puesto dedica HH / cantidad de puestos */
 function crewLoads(m) {
   const load = { A: 0, B: 0, C: 0 }, byTask = { A: [], B: [], C: [] };
-  let unassigned = 0, unassignedMin = 0, total = 0;
+  let unassigned = 0, unassignedMin = 0, total = 0, supportMin = 0;
   for (const t of m.tasks) {
     if (!t.skill) continue;
     const min = (+t.hh || 0) * 60;
-    const ps = [...new Set(E.effPos(S, t))].filter(p => POS.includes(p));
-    if (!ps.length) { unassigned++; unassignedMin += min; continue; }
+    const ap = E.effPos(S, t);
+    const ps = [...new Set(ap)].filter(p => POS.includes(p));
+    const sup = ap.filter(isSupport);
+    if (sup.length) { const share = sup.filter(x => x !== '*').length; const f = ps.length + share ? share / (ps.length + share) : 1; supportMin += min * (ps.length ? f : 1); }
+    if (!ps.length) { if (!sup.length) { unassigned++; unassignedMin += min; } continue; }
+    if (sup.length) { const k = ps.length + sup.filter(x => x !== '*').length; for (const p of ps) { load[p] += min / k; byTask[p].push({ t, code: t.id, name: t.name, sub: 'Estación ' + t.station + ' · con apoyo', min: min / k, share: k }); } total += min * ps.length / k; continue; }
     total += min;
     for (const p of ps) { load[p] += min / ps.length; byTask[p].push({ t, code: t.id, name: t.name, sub: 'Estación ' + t.station, min: min / ps.length, share: ps.length }); }
   }
   const max = Math.max(load.A, load.B, load.C);
   const eff = max ? total / (3 * max) : 0;
-  return { load, byTask, total, max, eff, unassigned, unassignedMin };
+  return { load, byTask, total, max, eff, unassigned, unassignedMin, supportMin };
 }
 
 /* Reparto automático: equilibra la carga entre los 3 puestos respetando la cuadrilla mínima
@@ -38,8 +44,8 @@ function autoAssign(m, refCrew) {
   const crewSkills = refCrew ? new Set(POS.flatMap(ps => [...skillsOf(ps)])) : null;
   const load = { A: 0, B: 0, C: 0 };
   // tareas más largas primero para un mejor equilibrio, conservando el orden del modelo en la tabla
-  const elig = m.tasks.filter(t => t.skill && (!crewSkills || crewSkills.has(t.skill)));
-  m.tasks.forEach(t => { if (!elig.includes(t)) t.pos = stdOf(t).length ? ['0'] : []; });
+  const elig = m.tasks.filter(t => t.skill && !E.effPos(S, t).some(isSupport) && (!crewSkills || crewSkills.has(t.skill)));
+  m.tasks.forEach(t => { if (!elig.includes(t) && !E.effPos(S, t).some(isSupport)) t.pos = stdOf(t).length ? ['0'] : []; });
   elig.slice().sort((a, b) => (+b.hh || 0) - (+a.hh || 0)).forEach(t => {
     const k = Math.min(3, Math.max(1, Math.round(+t.cmin || 1)));
     const ranked = POS.slice().sort((a, b) => (skillsOf(b).has(t.skill) - skillsOf(a).has(t.skill)) || (load[a] - load[b]) || a.localeCompare(b));
@@ -51,6 +57,14 @@ function autoAssign(m, refCrew) {
 
 /* ---------- Estándar por estación: un reparto por actividad que vale para todos los formatos ---------- */
 const stdOf = t => ((S.stdPos || {})[t.station] || {})[E.normKey(t.name)] || [];
+/* 'Planta' (*) es excluyente: cualquier operario habilitado. Puestos y designados se combinan entre sí. */
+function togglePos(arr, p) {
+  const set = new Set(arr.filter(x => x !== '0'));
+  if (p === '*') return set.has('*') ? [] : ['*'];
+  set.delete('*');
+  set.has(p) ? set.delete(p) : set.add(p);
+  return [...set].sort();
+}
 const samePos = (a, b) => a.length === b.length && a.every((x, i) => x === [...b].sort()[i]);
 const stName = id => (S.stations.find(x => x.id === id) || {}).name || 'Sin estación';
 function timeRef() {
@@ -78,21 +92,28 @@ function stdActivities(stId, ref = timeRef()) {
     else if (a.mins.length) { a.min = a.mins.reduce((x, y) => x + y, 0) / a.mins.length; a.src = 'prom'; }
     else { a.min = 0; a.src = 'none'; }
     a.ord = r ? r.idx : 1e4 + a.first;
-    a.pos = (std[a.k] || []).filter(p => POS.includes(p));
+    a.all = (std[a.k] || []).slice();
+    a.pos = a.all.filter(p => POS.includes(p));
+    a.sup = a.all.filter(isSupport);
     return a;
   });
   return out.sort((x, y) => x.ord - y.ord);
 }
 function stdLoads(acts) {
   const load = { A: 0, B: 0, C: 0 }, byTask = { A: [], B: [], C: [] };
-  let total = 0, assigned = 0, unassignedMin = 0;
+  let total = 0, assigned = 0, unassignedMin = 0, supportMin = 0, support = 0;
   acts.forEach((a, i) => {
-    if (!a.pos.length) { unassignedMin += a.min; return; }
-    assigned++; total += a.min;
-    a.pos.forEach(p => { load[p] += a.min / a.pos.length; byTask[p].push({ code: String(i + 1), name: a.name, sub: `${a.models.length} formato${a.models.length === 1 ? '' : 's'}`, min: a.min / a.pos.length, share: a.pos.length }); });
+    if (!a.pos.length && !a.sup.length) { unassignedMin += a.min; return; }
+    assigned++;
+    const named = a.sup.filter(x => x !== '*').length;
+    const k = a.pos.length + named;
+    if (a.sup.length) { support++; supportMin += a.pos.length ? a.min * named / k : a.min; }
+    if (!a.pos.length) return;
+    total += a.min * a.pos.length / k;
+    a.pos.forEach(p => { load[p] += a.min / k; byTask[p].push({ code: String(i + 1), name: a.name, sub: `${a.models.length} formato${a.models.length === 1 ? '' : 's'}${named ? ' · con apoyo' : ''}`, min: a.min / k, share: k }); });
   });
   const max = Math.max(load.A, load.B, load.C);
-  return { load, byTask, total, max, eff: max ? total / (3 * max) : 0, assigned, unassigned: acts.length - assigned, unassignedMin };
+  return { load, byTask, total, max, eff: max ? total / (3 * max) : 0, assigned, unassigned: acts.length - assigned, unassignedMin, supportMin, support };
 }
 function crewSkillSet(refCrew) {
   const crews = refCrew ? [refCrew] : (S.crews || []);
@@ -107,7 +128,8 @@ function stdAutoAssign(stId, refCrew) {
   const crewSkills = crewSkillSet(refCrew);
   const std = {};
   const load = { A: 0, B: 0, C: 0 };
-  acts.filter(a => !crewSkills.size || [...a.skills].some(k => crewSkills.has(k)))
+  acts.filter(a => a.sup.length).forEach(a => { std[a.k] = a.all; }); // tareas de apoyo: se respetan
+  acts.filter(a => !a.sup.length).filter(a => !crewSkills.size || [...a.skills].some(k => crewSkills.has(k)))
     .sort((a, b) => b.min - a.min || a.ord - b.ord)
     .forEach(a => {
       const has = ps => [...a.skills].some(k => skillsOf(ps).has(k));
@@ -172,7 +194,7 @@ function yamaTitle(L, names) {
 }
 /* Barras apiladas por estación y puesto */
 function stationStackSvg(perSt, names, aria, sel) {
-  const maxSt = Math.max(60, ...perSt.map(o => o.tot + (o.un || 0))) * 1.12;
+  const maxSt = Math.max(60, ...perSt.map(o => o.tot + (o.un || 0) + (o.sup || 0))) * 1.12;
   const W2 = 600, H2 = 340, ml2 = 52, mr2 = 16, mb2 = 46, mt2 = 20, iw2 = W2 - ml2 - mr2, ih2 = H2 - mt2 - mb2;
   const y2 = v => mt2 + ih2 - v / maxSt * ih2;
   const bw2 = Math.min(48, iw2 / Math.max(1, perSt.length) * 0.6);
@@ -189,13 +211,27 @@ function stationStackSvg(perSt, names, aria, sel) {
       svg2 += `<rect x="${cx - bw2 / 2}" y="${y1}" width="${bw2}" height="${hh}" rx="2" fill="${posVar(k)}" ${tipAttr(`<b>${esc(o.id)} ${esc(stName(o.id))}</b><br>${esc(names[k])}: ${hhm(o[ps])}`)}/>`;
       acc += o[ps];
     });
+    if (o.sup) { const y1 = y2(acc + o.sup), y0 = y2(acc); svg2 += `<rect x="${cx - bw2 / 2}" y="${y1}" width="${bw2}" height="${Math.max(0.6, y0 - y1 - 2)}" rx="2" fill="rgb(var(--ink-3) / .45)" ${tipAttr(`<b>${esc(o.id)} ${esc(stName(o.id))}</b><br>Apoyo (fuera de la cuadrilla o cualquier operario): ${hhm(o.sup)}`)}/>`; acc += o.sup; }
     if (o.un) svg2 += `<rect x="${cx - bw2 / 2}" y="${y2(acc + o.un)}" width="${bw2}" height="${Math.max(0.6, y2(acc) - y2(acc + o.un) - 2)}" rx="2" fill="none" stroke="rgb(var(--ink-3))" stroke-dasharray="3 3" ${tipAttr(`<b>${esc(o.id)} ${esc(stName(o.id))}</b><br>Sin puesto: ${hhm(o.un)}`)}/>`;
-    svg2 += `<text x="${cx}" y="${y2(o.tot + (o.un || 0)) - 6}" text-anchor="middle" font-size="10.5" font-weight="600" fill="rgb(var(--ink))">${nf0.format(o.tot + (o.un || 0))}</text><text x="${cx}" y="${H2 - mb2 + 18}" text-anchor="middle" font-size="11" font-weight="${sel && o.id === sel ? 700 : 600}" fill="rgb(var(${sel && o.id === sel ? '--accent' : '--ink'}))">${esc(o.id)}</text>`;
+    const top = o.tot + (o.un || 0) + (o.sup || 0);
+    svg2 += `<text x="${cx}" y="${y2(top) - 6}" text-anchor="middle" font-size="10.5" font-weight="600" fill="rgb(var(--ink))">${nf0.format(top)}</text><text x="${cx}" y="${H2 - mb2 + 18}" text-anchor="middle" font-size="11" font-weight="${sel && o.id === sel ? 700 : 600}" fill="rgb(var(${sel && o.id === sel ? '--accent' : '--ink'}))">${esc(o.id)}</text>`;
   });
   return `<svg viewBox="0 0 ${W2} ${H2}" class="w-full" style="min-width:480px" role="img" aria-label="${esc(aria)}">${svg2}</svg>`;
 }
-const posLegend = names => `<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">${POS.map((ps, k) => `<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:${posVar(k)}"></span>${esc(names[k])}</span>`).join('')}</div>`;
+const posLegend = names => `<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-2">${POS.map((ps, k) => `<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:${posVar(k)}"></span>${esc(names[k])}</span>`).join('')}<span class="inline-flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm" style="background:rgb(var(--ink-3) / .45)"></span>Apoyo</span></div>`;
 const kpiCell = (l, v, n, cls = '') => `<div class="p-4"><div class="text-xs text-ink-2">${l}</div><div class="mt-1 text-xl font-semibold tracking-tight num ${cls}">${v}</div><div class="text-xs text-ink-3 mt-0.5">${n}</div></div>`;
+function assignCell(arr, names, act, data, cmin, desig) {
+  const cur = new Set(arr);
+  const named = arr.filter(x => x[0] === '@').map(x => x.slice(1));
+  const free = cur.has('*');
+  const nPeople = arr.filter(x => POS.includes(x)).length + named.length;
+  const chips = POS.map((p, k) => `<button data-act="${act}" ${data} data-p="${p}" aria-pressed="${cur.has(p)}" title="${esc(names[k])} (puesto de la cuadrilla)" class="pos-chip rounded-full border border-line px-2.5 py-0.5 text-xs font-medium transition-colors" style="--c:${posVar(k)};--ci:${posInk(k)}">${esc(shortName(names[k]))}</button>`).join('');
+  const freeChip = `<button data-act="${act}" ${data} data-p="*" aria-pressed="${free}" title="La hace cualquier operario habilitado de la planta, sea o no de la cuadrilla del proyecto" class="pos-chip rounded-full border border-dashed border-line px-2.5 py-0.5 text-xs font-medium transition-colors" style="--c:rgb(var(--ink-2));--ci:rgb(var(--surface))">Planta</button>`;
+  const namedChips = named.map(id => { const w = workerById(id); return `<span class="inline-flex items-center gap-1 rounded-full bg-surface-2 border border-line pl-2.5 pr-1 py-0.5 text-xs font-medium ${w ? '' : 'text-bad'}" title="Operario designado: hace esta tarea en todos los proyectos, esté o no en la cuadrilla">${esc(w ? shortName(w.name) : id)}<button data-act="${act}" ${data} data-p="@${esc(id)}" class="w-4 h-4 inline-flex items-center justify-center rounded-full hover:bg-line" aria-label="Quitar ${esc(w ? w.name : id)}"><svg viewBox="0 0 12 12" class="w-2.5 h-2.5" stroke="currentColor" stroke-width="1.6"><path d="M3 3l6 6M9 3l-6 6"/></svg></button></span>`; }).join('');
+  const sel = `<select class="fld !py-0.5 !text-xs w-32" data-designate="${esc(desig)}" aria-label="Designar operario"><option value="">Designar…</option>${S.workers.filter(w => w.active !== false && !named.includes(w.id)).map(w => `<option value="${esc(w.id)}">${esc(w.name)}${crewOf(w.id) ? ' (' + esc(crewOf(w.id).name) + ')' : ''}</option>`).join('')}</select>`;
+  const warn = nPeople && nPeople !== cmin ? `<span class="text-xs text-warn whitespace-nowrap" title="Pide ${cmin} operario(s)">pide ${cmin}</span>` : '';
+  return `<div class="flex flex-wrap items-center gap-1.5">${chips}<span class="w-px h-4 bg-line mx-0.5" aria-hidden="true"></span>${freeChip}${namedChips}${sel}${warn}`;
+}
 const posChips = (cur, names, act, data) => `<div class="flex items-center gap-1.5">${POS.map((p, k) => `<button data-act="${act}" ${data} data-p="${p}" aria-pressed="${cur.has(p)}" title="${esc(names[k])}" class="pos-chip rounded-full border border-line px-2.5 py-0.5 text-xs font-medium transition-colors" style="--c:${posVar(k)};--ci:${posInk(k)}">${esc(shortName(names[k]))}</button>`).join('')}`;
 
 views.cuadrillas = () => {
@@ -263,13 +299,13 @@ function crewAssignView() {
     <div class="ml-auto flex flex-wrap gap-2">${btn('Repartir este modelo', 'auto-assign', false, `title="Equilibra la carga de este formato entre los 3 puestos. Lo que coincide con el estándar de la estación no se guarda como ajuste."`)}${btn('Volver al estándar', 'clear-assign', false, `title="Quita los ajustes propios de este modelo y usa el estándar de cada estación" ${own ? '' : 'disabled'}`)}</div></div>`;
 
   const kpis = card(`<div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-line">
-    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), 'por módulo, suma de los 3 operarios')}
+    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), `por módulo, suma de los 3 operarios${L.supportMin ? `, más ${hhm(L.supportMin)} de apoyo` : ''}`)}
     ${kpiCell('Carga del más cargado', hhm(L.max), L.max ? `${esc(names[POS.findIndex(p => L.load[p] === L.max)])}: marca el ritmo` : 'Sin reparto')}
     ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', 'Trabajo total ÷ (3 × carga máxima)', L.max && L.eff < 0.85 ? 'text-warn' : '')}
     ${kpiCell('Ajustes propios', String(own), own ? 'tareas que no siguen el estándar de su estación' : 'Todo sale del estándar por estación')}</div>`);
 
   const stIds = [...new Set(m.tasks.filter(t => t.skill).map(t => t.station))];
-  const perSt = stIds.map(id => { const o = { id, A: 0, B: 0, C: 0, un: 0 }; POS.forEach(ps => L.byTask[ps].forEach(sg => { if (sg.t.station === id) o[ps] += sg.min; })); m.tasks.forEach(t => { if (t.station === id && t.skill && !E.effPos(S, t).length) o.un += (+t.hh || 0) * 60; }); o.tot = o.A + o.B + o.C; return o; });
+  const perSt = stIds.map(id => { const o = { id, A: 0, B: 0, C: 0, un: 0, sup: 0 }; POS.forEach(ps => L.byTask[ps].forEach(sg => { if (sg.t.station === id) o[ps] += sg.min; })); m.tasks.forEach(t => { if (t.station !== id || !t.skill) return; const ap = E.effPos(S, t); const mn = (+t.hh || 0) * 60; if (!ap.length) o.un += mn; else if (ap.some(isSupport)) { const c = ap.filter(x => POS.includes(x)).length, n = ap.filter(x => x[0] === '@').length; o.sup += c ? mn * n / (c + n) : mn; } }); o.tot = o.A + o.B + o.C; return o; });
 
   let lastSt = null;
   const rows = m.tasks.map((t, i) => {
@@ -279,9 +315,9 @@ function crewAssignView() {
     const ps = new Set(eff);
     const isOwn = !!(t.pos && t.pos.length);
     const cmin = Math.max(1, Math.round(+t.cmin || 1));
-    const origin = isOwn ? `<span class="text-xs font-medium text-warn bg-signal-soft rounded px-1.5 py-0.5 ml-1">propio</span><button data-act="reset-pos" data-i="${i}" class="text-xs text-accent hover:underline ml-1" title="Usar el estándar de la estación">restablecer</button>` : (ps.size ? '<span class="text-xs text-ink-3 ml-1">estándar</span>' : '<span class="text-xs text-ink-3 ml-1">resto de la planta</span>');
+    const origin = isOwn ? `<span class="text-xs font-medium text-warn bg-signal-soft rounded px-1.5 py-0.5 ml-1">propio</span><button data-act="reset-pos" data-i="${i}" class="text-xs text-accent hover:underline ml-1" title="Usar el estándar de la estación">restablecer</button>` : (ps.size ? '<span class="text-xs text-ink-3 ml-1">estándar</span>' : '<span class="text-xs text-ink-3 ml-1">sin definir</span>');
     const note = !t.skill ? '<span class="text-xs text-ink-3">Espera, sin mano de obra</span>'
-      : `${posChips(ps, names, 'toggle-pos', `data-i="${i}"`)}${ps.size && ps.size !== cmin ? `<span class="text-xs text-warn ml-1 whitespace-nowrap" title="El modelo indica ${cmin} operario(s) para esta tarea">pide ${cmin}</span>` : ''}${origin}</div>`;
+      : `${assignCell(eff, names, 'toggle-pos', `data-i="${i}"`, cmin, 'm:' + i)}${origin}</div>`;
     return grp + `<tr class="border-t border-line-2"><td class="pl-4 pr-2 py-2 text-xs num text-ink-3">${esc(t.id)}</td><td class="px-2 py-2">${esc(t.name)}<div class="text-xs text-ink-3">${esc(t.skill || 'Espera')}</div></td><td class="px-2 py-2 text-right num whitespace-nowrap">${t.skill ? (t.hh == null || t.hh === '' ? '<span class="text-warn">sin tiempo</span>' : nf0.format(min) + ' min') : (t.wait ? t.wait + ' h' : '—')}</td><td class="px-2 py-2 text-right num">${t.skill ? cmin : '—'}</td><td class="px-2 pr-4 py-2">${note}</td></tr>`;
   }).join('');
 
@@ -292,7 +328,7 @@ function crewAssignView() {
     ${card(`<div class="px-5 pt-4 flex flex-wrap items-baseline justify-between gap-2"><div><h2 class="text-base font-semibold">Cuadrilla por estación</h2><p class="text-xs text-ink-3 mt-0.5">Minutos por estación y operario. En línea punteada, lo que queda sin puesto.</p></div>${posLegend(names)}</div><div class="scroll-x px-3 pb-3">${perSt.length ? stationStackSvg(perSt, names, 'Minutos de la cuadrilla por estación') : '<p class="p-6 text-sm text-ink-3">Sin tareas.</p>'}</div>`)}
     </div>
     ${card(`<div class="px-5 pt-4 pb-2"><h2 class="text-base font-semibold">Puestos por tarea</h2><p class="text-xs text-ink-3 mt-0.5">Tocá un nombre para sumarlo o quitarlo solo en este modelo. Las tareas sin puesto las hace el resto de la planta según su especialidad.</p></div>
-      <div class="scroll-x"><table class="w-full text-sm" style="min-width:760px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Código</th><th class="px-2 font-medium">Tarea</th><th class="px-2 font-medium text-right">Tiempo</th><th class="px-2 font-medium text-right" title="Operarios que pide el modelo">Oper.</th><th class="px-2 pr-4 font-medium">Puestos</th></tr></thead><tbody>${rows}</tbody></table></div>`)}
+      <div class="scroll-x"><table class="w-full text-sm" style="min-width:980px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Código</th><th class="px-2 font-medium">Tarea</th><th class="px-2 font-medium text-right">Tiempo</th><th class="px-2 font-medium text-right" title="Operarios que pide el modelo">Oper.</th><th class="px-2 pr-4 font-medium">Quién la hace</th></tr></thead><tbody>${rows}</tbody></table></div>`)}
     </div>`;
 }
 
@@ -307,7 +343,7 @@ function crewStationView() {
   S.ui.stdStation = cur.s.id;
   const acts = cur.acts;
   const L = stdLoads(acts);
-  const summary = all.map(x => { const l = stdLoads(x.acts); return { id: x.s.id, A: l.load.A, B: l.load.B, C: l.load.C, tot: l.total, un: l.unassignedMin, n: x.acts.length, done: l.assigned }; });
+  const summary = all.map(x => { const l = stdLoads(x.acts); return { id: x.s.id, A: l.load.A, B: l.load.B, C: l.load.C, tot: l.total, un: l.unassignedMin, sup: l.supportMin, n: x.acts.length, done: l.assigned }; });
   const totActs = summary.reduce((a, o) => a + o.n, 0), totDone = summary.reduce((a, o) => a + o.done, 0);
   const gl = { A: 0, B: 0, C: 0 }; summary.forEach(o => POS.forEach(p => { gl[p] += o[p]; }));
   const glTot = gl.A + gl.B + gl.C, glMax = Math.max(gl.A, gl.B, gl.C);
@@ -330,7 +366,7 @@ function crewStationView() {
 
   const kpis = card(`<div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-line">
     ${kpiCell('Actividades de la estación', String(acts.length), `reunidas de ${new Set(acts.flatMap(a => a.models)).size} formatos`)}
-    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), 'por módulo de referencia')}
+    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), L.supportMin ? `más ${hhm(L.supportMin)} de apoyo en ${L.support} actividad${L.support === 1 ? '' : 'es'}` : 'por módulo de referencia')}
     ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', 'Trabajo total ÷ (3 × carga máxima)', L.max && L.eff < 0.85 ? 'text-warn' : '')}
     ${kpiCell('Cobertura total', pct(totActs ? totDone / totActs : 0), `${totDone} de ${totActs} actividades de todas las estaciones con puesto`, totDone < totActs ? '' : 'text-accent')}</div>`);
 
@@ -345,17 +381,22 @@ function crewStationView() {
       <td class="px-2 py-2.5"><span class="num font-medium" ${tipAttr(`<b>Formatos que incluyen la actividad</b><br>${mList.map(esc).join('<br>')}`)}>${a.models.length}</span></td>
       <td class="px-2 py-2.5 text-right whitespace-nowrap"><span class="num">${a.min ? nf0.format(a.min) + ' min' : '—'}</span> ${srcPill(a)}</td>
       <td class="px-2 py-2.5 text-right num">${a.cmin}</td>
-      <td class="px-2 pr-4 py-2.5">${posChips(ps, names, 'toggle-std', `data-k="${esc(a.k)}"`)}${ps.size && ps.size !== a.cmin ? `<span class="text-xs text-warn ml-1 whitespace-nowrap" title="La actividad pide ${a.cmin} operario(s)">pide ${a.cmin}</span>` : ''}${!ps.size ? '<span class="text-xs text-ink-3 ml-1">resto de la planta</span>' : ''}</div></td></tr>`;
+      <td class="px-2 pr-4 py-2.5">${assignCell(a.all, names, 'toggle-std', `data-k="${esc(a.k)}"`, a.cmin, 's:' + a.k)}${!a.all.length ? '<span class="text-xs text-ink-3 ml-1">sin definir</span>' : ''}</div></td></tr>`;
   }).join('');
 
   const glNote = glTot ? `<span class="text-xs text-ink-3">Plantilla completa: ${POS.map((p, k) => `${esc(shortName(names[k]))} ${hhm(gl[p])}`).join(' · ')} · eficiencia ${pct(glTot / (3 * glMax))}</span>` : '';
-  return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed">Elegí una estación y asigná cada actividad a un puesto. La asignación se aplica a <b>todos los formatos</b> que tienen esa actividad en esa estación (se reconocen por el nombre), y el programa la usa en cada proyecto con cuadrilla.</p>` + srcNote + `<div class="space-y-6">${kpis}
+  return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed">Elegí una estación y asigná cada actividad a un puesto. La asignación se aplica a <b>todos los formatos</b> que tienen esa actividad en esa estación (se reconocen por el nombre), y el programa la usa en cada proyecto con cuadrilla.</p>
+    <div class="mb-4 grid sm:grid-cols-3 gap-3 text-xs text-ink-2 max-w-4xl">
+      <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Operario 1, 2 o 3</b>: la hace ese puesto de la cuadrilla asignada al proyecto o lote.</div>
+      <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Planta</b>: la hace cualquier operario habilitado, sea o no de la cuadrilla. Útil para subconjuntos y pintura que se adelantan.</div>
+      <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Designar</b>: siempre la hace esa persona, en cualquier proyecto. Se puede combinar con un puesto de la cuadrilla.</div>
+    </div>` + srcNote + `<div class="space-y-6">${kpis}
     <div class="grid xl:grid-cols-2 gap-6 items-start">
     ${card(`<div class="px-5 pt-4"><div class="text-xs font-medium text-ink-3"><span class="num">${esc(cur.s.id)}</span> · ${esc(cur.s.name)}</div><h2 class="text-base font-semibold mt-0.5">${yamaTitle(L, names)}</h2><p class="text-xs text-ink-3 mt-0.5">Yamazumi por operario con los tiempos de referencia de la estación, por módulo.</p></div><div class="scroll-x px-3 pb-3">${yamaSvg(L, names, 'Carga por operario en la estación ' + cur.s.name)}</div>`)}
     ${card(`<div class="px-5 pt-4 flex flex-wrap items-baseline justify-between gap-2"><div><h2 class="text-base font-semibold">Plantilla estándar por estación</h2><p class="text-xs text-ink-3 mt-0.5">Minutos de referencia por puesto. En línea punteada, lo que todavía no tiene puesto.</p></div>${posLegend(names)}</div><div class="scroll-x px-3 pb-1">${stationStackSvg(summary, names, 'Plantilla estándar por estación', cur.s.id)}</div><div class="px-5 pb-4">${glNote}</div>`)}
     </div>
     ${card(`<div class="px-5 pt-4 pb-2"><h2 class="text-base font-semibold">Actividades de ${esc(cur.s.name)}</h2><p class="text-xs text-ink-3 mt-0.5">Tocá un nombre para sumarlo o quitarlo. Pasá el cursor por la cantidad de formatos para ver cuáles son.</p></div>
-      <div class="scroll-x"><table class="w-full text-sm" style="min-width:820px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">#</th><th class="px-2 font-medium">Actividad</th><th class="px-2 font-medium">Formatos</th><th class="px-2 font-medium text-right">Tiempo ref.</th><th class="px-2 font-medium text-right" title="Máximo de operarios que pide la actividad entre los formatos">Oper.</th><th class="px-2 pr-4 font-medium">Puestos</th></tr></thead><tbody>${rows}</tbody></table></div>`)}
+      <div class="scroll-x"><table class="w-full text-sm" style="min-width:1040px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">#</th><th class="px-2 font-medium">Actividad</th><th class="px-2 font-medium">Formatos</th><th class="px-2 font-medium text-right">Tiempo ref.</th><th class="px-2 font-medium text-right" title="Máximo de operarios que pide la actividad entre los formatos">Oper.</th><th class="px-2 pr-4 font-medium">Quién la hace</th></tr></thead><tbody>${rows}</tbody></table></div>`)}
     </div>`;
 }
 
@@ -404,7 +445,7 @@ function crewSheetView() {
     const segs = day.hours ? workerDaySegs(wi, di) : [];
     const availMin = Math.round(day.slots * w.avail) * 60 / R.cal.Q;
     const busyMin = segs.reduce((a, s) => a + (s.e - s.s) * 60 / R.cal.Q, 0);
-    const posOf = (task) => { const c = S.crews.find(cc => cc.id === task.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? POS_LABEL[POS[k]] : ''; };
+    const posOf = (task) => { const c = S.crews.find(cc => cc.id === task.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? POS_LABEL[POS[k]] : 'apoyo a ' + c.name; };
     let cursor = day.slot0;
     const rows = [];
     segs.forEach((sg, n) => {

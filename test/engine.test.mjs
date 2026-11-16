@@ -88,3 +88,23 @@ test('el estándar por estación se aplica a todos los formatos y el ajuste del 
   }
   assert.equal(E.normKey('  Colocación de PUERTA. '), 'colocacion de puerta');
 });
+
+test('las tareas de apoyo las hace un operario designado o cualquiera de la planta, aunque no sea de la cuadrilla', () => {
+  const s = withTimes();
+  s.crews = [{ id: 'C1', name: 'Cuadrilla 1', members: ['W1', 'W2', 'W6'] }];
+  const m = s.models.find(x => x.id === 'M2');
+  const work = m.tasks.filter(t => t.skill);
+  work.forEach(t => { t.pos = ['A']; });
+  const outsider = s.workers.find(w => !['W1', 'W2', 'W6'].includes(w.id) && w.skills.includes(work[0].skill));
+  work[0].pos = ['@' + outsider.id];        // designado fuera de la cuadrilla
+  work[1].pos = ['B', '@' + outsider.id];   // puesto + designado
+  work[2].pos = ['*'];                      // cualquiera de la planta
+  s.projects = [{ id: 'P1', name: 'X', model: 'M2', qty: 1, release: s.calendar.start, due: '2027-03-01', prio: 1, crews: ['C1'] }];
+  const r = E.schedule(s);
+  assert.deepEqual(r.errors, []);
+  const ids = t => [...t.crew].map(i => r.workers[i].id).sort();
+  const byTpl = tpl => r.tasks.find(t => t.tpl === tpl);
+  assert.deepEqual(ids(byTpl(work[0])), [outsider.id]);
+  assert.deepEqual(ids(byTpl(work[1])), ['W2', outsider.id].sort());
+  assert.equal(byTpl(work[2]).fixed, null);
+});

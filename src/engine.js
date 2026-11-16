@@ -167,7 +167,9 @@
       // especialidades suficientes
       for (const t of m.tasks) {
         if ((+t.hh || 0) <= 0) continue;
-        if (pr.crews.length && effPos(S, t).length) continue; // la hace la cuadrilla asignada
+        const ap = effPos(S, t);
+        if (ap.some(x => x[0] === '@' && wIdx[x.slice(1)] != null)) continue; // operario designado
+        if (pr.crews.length && ap.some(x => POS[x] != null)) continue; // la hace la cuadrilla asignada
         const q = workers.filter(w => w.skillSet.has(t.skill)).length;
         if (q < Math.max(1, +t.cmin || 1)) {
           pr.excluded = true;
@@ -202,10 +204,14 @@
             start: null, laborEnd: null, end: null, crew: new Set(), lastCrew: [], workedSlots: 0, fixed: null
           };
           // Puestos fijos de la cuadrilla: la tarea la hacen exactamente esos operarios
-          const tpos = crew ? effPos(S, t) : [];
-          if (crew && tpos.length) {
-            const ids = [...new Set(tpos)].map(ps => crew.idx[POS[ps]]);
-            if (ids.every(i => i != null)) { task.fixed = ids; task.cmin = task.cmax = ids.length; }
+          // Asignación fija: puestos de la cuadrilla (A/B/C) y/o operarios designados (@id), estén o no en la cuadrilla.
+          // '*' = cualquier operario habilitado de la planta (no fija a nadie).
+          const tpos = effPos(S, t);
+          const named = tpos.filter(x => x[0] === '@').map(x => wIdx[x.slice(1)]).filter(i => i != null);
+          const crewIds = crew ? tpos.filter(x => POS[x] != null).map(ps => crew.idx[POS[ps]]) : [];
+          if (crewIds.every(i => i != null) && (named.length || crewIds.length)) {
+            const ids = [...new Set([...crewIds, ...named])];
+            task.fixed = ids; task.cmin = task.cmax = ids.length;
           }
           unit.tasks.push(task);
           tasks.push(task);
