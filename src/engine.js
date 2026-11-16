@@ -142,6 +142,10 @@
       ...w, eff: 1, avail: Math.max(0.05, Math.min(1, (+w.pct || 100) / 100)), skillSet: new Set(w.skills || [])
     }));
     const models = Object.fromEntries(S.models.map(m => [m.id, m]));
+    const wIdx = Object.fromEntries(workers.map((w, i) => [w.id, i]));
+    // Cuadrillas: 3 puestos (A, B, C) → operarios concretos
+    const crews = Object.fromEntries((S.crews || []).map(c => [c.id, { ...c, idx: (c.members || []).map(id => (id && wIdx[id] != null ? wIdx[id] : null)) }]));
+    const POS = { A: 0, B: 1, C: 2 };
 
     const units = [];
     const tasks = [];
@@ -154,6 +158,7 @@
         qty: Math.max(0, Math.round(+p.qty || 0)), color: pi, prio: +p.prio || 2,
         release: p.release, due: p.due, units: [], excluded: false, reason: ''
       };
+      pr.crews = (p.crews || []).filter(id => crews[id]);
       projects.push(pr);
       if (!m) { pr.excluded = true; pr.reason = 'El proyecto no tiene un modelo válido.'; errors.push(`${p.name}: elegí un modelo.`); return; }
       if (!pr.qty) { pr.excluded = true; pr.reason = 'Cantidad en cero.'; return; }
@@ -162,6 +167,7 @@
       // especialidades suficientes
       for (const t of m.tasks) {
         if ((+t.hh || 0) <= 0) continue;
+        if (pr.crews.length && (t.pos || []).length) continue; // la hace la cuadrilla asignada
         const q = workers.filter(w => w.skillSet.has(t.skill)).length;
         if (q < Math.max(1, +t.cmin || 1)) {
           pr.excluded = true;
@@ -179,9 +185,11 @@
       const dueSlot = cal.slotEndOfDate(p.due || S.calendar.start);
       pr.relSlot = relSlot; pr.dueSlot = dueSlot;
       for (let u = 0; u < pr.qty; u++) {
+        // Lotes consecutivos: con 2 cuadrillas y 10 módulos, 1–5 → primera, 6–10 → segunda
+        const crew = pr.crews.length ? crews[pr.crews[Math.floor(u * pr.crews.length / pr.qty)]] : null;
         const unit = {
           key: `${p.id}#${u + 1}`, project: pr, n: u + 1, tasks: [], st: {},
-          start: null, end: null
+          start: null, end: null, crew: crew ? crew.id : null
         };
         m.tasks.forEach((t, ti) => {
           const task = {
@@ -191,8 +199,13 @@
             wait: Math.max(0, Math.round((+t.wait || 0) * Q)),
             st: stIdx[t.station], pw: pw[t.id] || 0,
             preds: [], status: 0, // 0 espera, 1 en curso, 2 mano de obra terminada (curando), 3 terminada
-            start: null, laborEnd: null, end: null, crew: new Set(), lastCrew: [], workedSlots: 0
+            start: null, laborEnd: null, end: null, crew: new Set(), lastCrew: [], workedSlots: 0, fixed: null
           };
+          // Puestos fijos de la cuadrilla: la tarea la hacen exactamente esos operarios
+          if (crew && (t.pos || []).length) {
+            const ids = [...new Set(t.pos)].map(ps => crew.idx[POS[ps]]);
+            if (ids.every(i => i != null)) { task.fixed = ids; task.cmin = task.cmax = ids.length; }
+          }
           unit.tasks.push(task);
           tasks.push(task);
           const so = unit.st[task.st] || (unit.st[task.st] = { total: 0, done: 0, in: false, enter: null, leave: null });
@@ -288,6 +301,7 @@
       const crews = new Map();
       // Prioridad: quienes ya venían en la tarea, luego el orden fijo por especialidad (menos polivalentes primero)
       const pick = (x, n) => {
+        if (x.fixed) return x.fixed.filter(wi => free[wi]);
         const out = [];
         for (const wi of x.lastCrew) { if (out.length >= n) return out; if (free[wi] && workers[wi].skillSet.has(x.tpl.skill)) out.push(wi); }
         const order = bySkill.get(x.tpl.skill) || [];

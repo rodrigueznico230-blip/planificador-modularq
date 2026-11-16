@@ -9,6 +9,7 @@ Programa la fabricación de varios proyectos de construcción modular a la vez y
 - **Gantt** por proyecto (con tareas), por estación y por operario.
 - **Carga de operarios** por día o semana, por persona y por especialidad.
 - **Equilibrado** por estación (Yamazumi): takt time, tiempo de ciclo, operarios mínimos y eficiencia.
+- **Cuadrillas**: equipos de 3 operarios asignados a proyectos o lotes; reparto de las tareas de cada modelo entre los puestos Operario 1, 2 y 3 (Yamazumi por operario y por estación, eficiencia de balanceo) y hoja de procedimiento diario imprimible por operario.
 - **Datos editables**: proyectos, modelos y tareas, operarios, estaciones y calendario.
 - **Nube**: con una cuenta de ModulArq, el plan se guarda en Supabase y se comparte. Administradores editan; operarios ven en modo lectura. Los cambios de otra persona llegan en tiempo real y los conflictos se resuelven a elección.
 
@@ -20,6 +21,7 @@ El modelo *Planta libre* reproduce la secuencia del proyecto Vicuña 3PL de `mod
 src/
   engine.js    motor de programación (función pura, sin dependencias)
   app.js       interfaz
+  crews-view.js  apartado Cuadrillas (se inserta en app.js al compilar)
   cloud.js     inicio de sesión y sincronización con Supabase
   sample.js    datos de ejemplo
   config.js    URL y clave publicable de Supabase

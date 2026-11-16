@@ -1,6 +1,6 @@
 const v = n => `rgb(var(--${n}) / <alpha-value>)`;
 module.exports = {
-  content: ['./src/shell.html', './src/app.js', './src/cloud.js'],
+  content: ['./src/shell.html', './src/app.js', './src/cloud.js', './src/crews-view.js'],
   safelist: ['bg-ok-soft','bg-warn-soft','bg-bad-soft','text-ok','text-warn','text-bad','bg-bad','bg-warn','bg-line','rotate-90'],
   theme: { extend: {
     fontFamily: { sans: ['Inter Variable', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'] },

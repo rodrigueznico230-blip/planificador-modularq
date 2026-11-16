@@ -42,3 +42,27 @@ test('detecta precedencias circulares', () => {
   const errs = E.validateModel({ tasks: [{ id: 'A', preds: ['B'] }, { id: 'B', preds: ['A'] }] });
   assert.ok(errs.some(e => /ciclo/.test(e)));
 });
+
+test('una cuadrilla hace con sus 3 operarios las tareas con puesto asignado', () => {
+  const s = withTimes();
+  s.crews = [{ id: 'C1', name: 'Cuadrilla 1', members: ['W1', 'W2', 'W6'] }];
+  const m = s.models.find(x => x.id === 'M2');
+  m.tasks.forEach((t, i) => { if (t.skill) t.pos = [['A'], ['A', 'B'], ['C']][i % 3]; });
+  s.projects = [{ id: 'P1', name: 'X', model: 'M2', qty: 2, release: s.calendar.start, due: '2027-03-01', prio: 1, crews: ['C1'] }];
+  const r = E.schedule(s);
+  assert.deepEqual(r.errors, []);
+  const ids = { A: 'W1', B: 'W2', C: 'W6' };
+  for (const t of r.tasks) {
+    if (!t.tpl.pos || !t.tpl.pos.length || !t.hh) continue;
+    const got = [...t.crew].map(i => r.workers[i].id).sort();
+    assert.deepEqual(got, t.tpl.pos.map(p => ids[p]).sort(), t.key);
+  }
+});
+
+test('con dos cuadrillas el proyecto se divide en lotes consecutivos', () => {
+  const s = withTimes();
+  s.crews = [{ id: 'C1', name: 'A', members: ['W1', 'W2', 'W6'] }, { id: 'C2', name: 'B', members: ['W3', 'W5', 'W8'] }];
+  s.projects = [{ id: 'P1', name: 'X', model: 'M2', qty: 4, release: s.calendar.start, due: '2027-03-01', prio: 1, crews: ['C1', 'C2'] }];
+  const r = E.schedule(s);
+  assert.deepEqual(r.projects[0].units.map(u => u.crew), ['C1', 'C1', 'C2', 'C2']);
+});

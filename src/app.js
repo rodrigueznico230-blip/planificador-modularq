@@ -43,6 +43,7 @@ function persist() { if (document.body.classList.contains('cloud')) return; try 
 S = load();
 S.balance = S.balance || {};
 S.ui = S.ui || { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
+S.crews = S.crews || [];
 
 function recompute() {
   R = E.schedule(S);
@@ -595,11 +596,12 @@ views.proyectos = () => {
       <td class="px-2 w-40 align-top pt-2"><label class="sr-only" for="p${i}r">Liberación</label><input id="p${i}r" class="fld" type="date" value="${esc(p.release)}" data-path="projects.${i}.release" aria-describedby="p${i}r-msg"><p id="p${i}r-msg" class="field-msg"></p></td>
       <td class="px-2 w-40 align-top pt-2"><label class="sr-only" for="p${i}d">Compromiso</label><input id="p${i}d" class="fld" type="date" value="${esc(p.due)}" data-path="projects.${i}.due" aria-describedby="p${i}d-msg"><p id="p${i}d-msg" class="field-msg"></p></td>
       <td class="px-2 w-28"><label class="sr-only" for="p${i}p">Prioridad</label><select id="p${i}p" class="fld" data-path="projects.${i}.prio" data-type="int">${[1, 2, 3].map(v => `<option value="${v}" ${+p.prio === v ? 'selected' : ''}>${PRIO[v]}</option>`).join('')}</select></td>
+      <td class="px-2 min-w-40">${S.crews.length ? `<div class="flex flex-wrap gap-1">${S.crews.map(c => { const on = (p.crews || []).includes(c.id); const lot = on && (p.crews || []).length > 1 ? (p.crews || []).indexOf(c.id) + 1 : 0; return `<button data-act="toggle-pcrew" data-i="${i}" data-c="${esc(c.id)}" aria-pressed="${on}" class="chip-toggle rounded-full border border-line px-2 py-0.5 text-xs font-medium text-ink-2 hover:border-ink-3 transition-colors" title="${on ? 'Quitar' : 'Asignar'} ${esc(c.name)}">${esc(c.name)}${lot ? ` <span class="opacity-70">L${lot}</span>` : ''}</button>`; }).join('')}</div>` : '<a href="#cuadrillas" class="text-xs text-accent hover:underline">Crear cuadrillas</a>'}</td>
       <td class="px-2 whitespace-nowrap text-ink-2 text-sm"><span data-result="p:${esc(p.id)}" class="rounded px-1 -mx-1">${end}</span></td>
       <td class="pl-2 pr-4 text-right">${delBtn('del-project', i, 'Eliminar ' + p.name)}</td></tr>`;
   }).join('');
   return pageHead('Proyectos', 'Cada proyecto fabrica una cantidad de unidades de un modelo. La liberación es el primer día en que puede entrar a planta; el compromiso es la fecha de entrega pactada. Ante conflictos se atiende primero la prioridad más alta y luego el compromiso más cercano.', btn(plus + 'Agregar proyecto', 'add-project', true))
-    + card(`<div class="scroll-x"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-3"></th><th class="px-2 font-medium">Proyecto</th><th class="px-2 font-medium">Cliente</th><th class="px-2 font-medium">Modelo</th><th class="px-2 font-medium text-right">Cantidad</th><th class="px-2 font-medium">Liberación</th><th class="px-2 font-medium">Compromiso</th><th class="px-2 font-medium">Prioridad</th><th class="px-2 font-medium">Fin estimado</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="10" class="px-5 py-8 text-center text-ink-2">No hay proyectos. Agregá el primero con el botón de arriba.</td></tr>'}</tbody></table></div>`);
+    + card(`<div class="scroll-x"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-3"></th><th class="px-2 font-medium">Proyecto</th><th class="px-2 font-medium">Cliente</th><th class="px-2 font-medium">Modelo</th><th class="px-2 font-medium text-right">Cantidad</th><th class="px-2 font-medium">Liberación</th><th class="px-2 font-medium">Compromiso</th><th class="px-2 font-medium">Prioridad</th><th class="px-2 font-medium" title="Con más de una cuadrilla el proyecto se divide en lotes consecutivos (L1, L2…)">Cuadrillas</th><th class="px-2 font-medium">Fin estimado</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="11" class="px-5 py-8 text-center text-ink-2">No hay proyectos. Agregá el primero con el botón de arriba.</td></tr>'}</tbody></table></div>`);
 };
 
 /* ---------- Datos: modelos ---------- */
@@ -684,13 +686,15 @@ views.calendario = () => {
   return pageHead('Calendario', 'Define cuándo trabaja la planta. Los días con 0 horas o marcados como feriado no se programan y aparecen sombreados en el Gantt.')
     + `<div class="grid lg:grid-cols-2 gap-6 items-start">${card(`<div class="p-5 space-y-5">
       <label class="block text-sm text-ink-2" for="planNameIn">Nombre del plan<input id="planNameIn" class="fld mt-1" value="${esc(S.planName || '')}" data-path="planName"></label>
-      <label class="block text-sm text-ink-2" for="calStart">Inicio del programa<input id="calStart" class="fld mt-1 w-48" type="date" value="${esc(S.calendar.start)}" data-path="calendar.start"></label>
+      <div class="flex flex-wrap gap-4"><label class="block text-sm text-ink-2" for="calStart">Inicio del programa<input id="calStart" class="fld mt-1 w-48" type="date" value="${esc(S.calendar.start)}" data-path="calendar.start"></label><label class="block text-sm text-ink-2" for="calTime">Inicio de la jornada<input id="calTime" class="fld mt-1 w-32" type="time" step="900" value="${esc(S.calendar.startTime || '07:00')}" data-path="calendar.startTime"></label></div>
       <fieldset><legend class="text-sm font-semibold mb-2">Horas de trabajo por día</legend><div class="grid grid-cols-4 sm:grid-cols-7 gap-3">${hours}</div><p class="mt-2 text-xs text-ink-3">Total semanal: <span class="num font-medium text-ink-2">${weeklyHours()} h</span> por operario.</p></fieldset></div>`)}
       ${card(`<div class="p-5"><label class="block text-sm font-semibold" for="hol">Feriados y días sin actividad</label><p class="text-xs text-ink-3 mt-0.5 mb-2">Una fecha por línea, en formato AAAA-MM-DD.</p><textarea id="hol" rows="9" class="fld font-mono num" data-path="calendar.holidays" data-type="lines">${esc((S.calendar.holidays || []).join('\n'))}</textarea></div>`)}</div>`;
 };
 
 /* ================= RENDER + RUTEO ================= */
-const ROUTES = ['resumen', 'gantt', 'carga', 'equilibrado', 'proyectos', 'modelos', 'operarios', 'estaciones', 'calendario'];
+/*CREWS_VIEW*/
+
+const ROUTES = ['resumen', 'gantt', 'carga', 'equilibrado', 'proyectos', 'modelos', 'cuadrillas', 'operarios', 'estaciones', 'calendario'];
 function route() { const h = location.hash.slice(1); return ROUTES.includes(h) ? h : 'resumen'; }
 function render() {
   tips = [];
@@ -739,7 +743,13 @@ document.addEventListener('change', e => {
     changed(re);
     return;
   }
-  if (t.dataset.ui === 'model') { S.ui.model = t.value; changed(true); return; }
+  if (t.dataset.ui) { S.ui[t.dataset.ui] = t.value; changed(true); return; }
+  if (t.dataset.crewmember) {
+    if (document.body.classList.contains('readonly')) { render(); return; }
+    const snapC = clone(S); const [ci, k] = t.dataset.crewmember.split(':').map(Number);
+    const c = S.crews[ci]; c.members = (c.members || ['', '', '']).slice(0, 3); while (c.members.length < 3) c.members.push('');
+    c.members[k] = t.value; remember(snapC); changed(true); return;
+  }
   if (t.dataset.bal) { const snapC = clone(S); const m = S.models.find(x => x.id === S.ui.model); balanceOf(m).B[t.dataset.bal] = Math.max(0.1, +t.value || 1); remember(snapC); changed(true); return; }
   if (t.dataset.crew) { const snapC = clone(S); const m = S.models.find(x => x.id === S.ui.model); balanceOf(m).B.crew[t.dataset.crew] = Math.max(1, Math.round(+t.value || 1)); remember(snapC); changed(true); return; }
 });
@@ -761,7 +771,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const act = b.dataset.act, i = +b.dataset.i;
-  const viewOnly = ['toggle-unit', 'expand-all', 'collapse-all', 'pick-model', 'copy-json', 'copy-csv', 'suggest-crew', 'hours-from-cal'];
+  const viewOnly = ['toggle-unit', 'expand-all', 'collapse-all', 'pick-model', 'copy-json', 'copy-csv', 'suggest-crew', 'hours-from-cal', 'sheet-day', 'print-sheet'];
   if (document.body.classList.contains('readonly') && !viewOnly.includes(act)) { toast('Solo lectura: tu rol no permite editar el plan.'); return; }
   const snap = clone(S);
   queueMicrotask(() => remember(snap));
@@ -797,7 +807,39 @@ document.addEventListener('click', e => {
     }
     case 'del-task': { const id = m.tasks[i].id; m.tasks.splice(i, 1); m.tasks.forEach(t => (t.preds = (t.preds || []).filter(p => p !== id))); changed(true); toast(`Tarea ${id} eliminada.`, snap); break; }
     case 'add-worker': S.workers.push({ id: newId('W', S.workers), name: 'Operario nuevo', skills: [], pct: 100, active: true }); changed(true); break;
-    case 'del-worker': { const n = S.workers[i].name; S.workers.splice(i, 1); changed(true); toast(`${n} eliminado del plan.`, snap); break; }
+    case 'add-crew': {
+      let n = S.crews.length + 1; while (S.crews.some(c => c.id === 'C' + n)) n++;
+      S.crews.push({ id: 'C' + n, name: 'Cuadrilla ' + n, members: ['', '', ''] });
+      S.ui.crewTab = 'equipos'; changed(true); break;
+    }
+    case 'del-crew': {
+      const c = S.crews[i]; S.crews.splice(i, 1);
+      S.projects.forEach(p => { p.crews = (p.crews || []).filter(x => x !== c.id); });
+      changed(true); toast(`${c.name} eliminada.`, snap); break;
+    }
+    case 'toggle-pcrew': {
+      const p = S.projects[i]; const id = b.dataset.c; p.crews = p.crews || [];
+      p.crews = p.crews.includes(id) ? p.crews.filter(x => x !== id) : [...p.crews, id];
+      changed(true); break;
+    }
+    case 'toggle-pos': {
+      const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
+      const t = mm.tasks[i]; const ps = new Set(t.pos || []);
+      ps.has(b.dataset.p) ? ps.delete(b.dataset.p) : ps.add(b.dataset.p);
+      t.pos = [...ps].sort(); changed(true); break;
+    }
+    case 'auto-assign': {
+      const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
+      autoAssign(mm, S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null);
+      changed(true); toast(`Tareas de ${mm.name} repartidas entre los 3 puestos.`, snap); break;
+    }
+    case 'clear-assign': {
+      const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
+      mm.tasks.forEach(t => { t.pos = []; }); changed(true); toast('Reparto quitado.', snap); break;
+    }
+    case 'sheet-day': if (b.dataset.d) { S.ui.sheetDay = b.dataset.d; changed(true); } break;
+    case 'print-sheet': try { window.print(); } catch (e) { toast('Tu navegador no permite imprimir desde acá.'); } break;
+    case 'del-worker': { const n = S.workers[i].name; const wid = S.workers[i].id; S.crews.forEach(c => { c.members = (c.members || []).map(x => (x === wid ? '' : x)); }); S.workers.splice(i, 1); changed(true); toast(`${n} eliminado del plan.`, snap); break; }
     case 'toggle-skill': {
       const w = S.workers[i]; const s = b.dataset.s; w.skills = w.skills || [];
       w.skills = w.skills.includes(s) ? w.skills.filter(x => x !== s) : [...w.skills, s];
@@ -860,7 +902,7 @@ function doImport(text) {
     const o = JSON.parse(text);
     if (!o.calendar || !Array.isArray(o.projects) || !Array.isArray(o.models) || !Array.isArray(o.workers) || !Array.isArray(o.stations)) throw new Error('Faltan secciones: calendar, projects, models, workers o stations.');
     const snap = clone(S);
-    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
+    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.crews = S.crews || []; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
     changed(true); $('#dlgData').close(); toast('Plan cargado.', snap);
     msg.textContent = '';
   } catch (err) {
@@ -898,7 +940,7 @@ window.PlanApp = {
   exportState: () => { const c = clone(S); delete c.ui; return c; },
   replaceState: (data, opts) => {
     const ui = S.ui; S = clone(data); S.ui = (opts && opts.keepUi) ? ui : (S.ui || ui);
-    S.balance = S.balance || {}; S.skills = S.skills || [];
+    S.balance = S.balance || {}; S.skills = S.skills || []; S.crews = S.crews || [];
     history.length = 0;
     changed(true, true, true);
   },
