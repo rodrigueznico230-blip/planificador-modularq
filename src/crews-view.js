@@ -66,6 +66,9 @@ function togglePos(arr, p) {
   return [...set].sort();
 }
 const samePos = (a, b) => a.length === b.length && a.every((x, i) => x === [...b].sort()[i]);
+/* El estándar se arma con los formatos del catálogo; los personalizados se ajustan aparte */
+const isCustom = m => /^personalizado$/i.test(String(m.type || '').trim());
+const stdModels = () => S.models.filter(m => !isCustom(m));
 const stName = id => (S.stations.find(x => x.id === id) || {}).name || 'Sin estación';
 function timeRef() {
   const ts = S.timeStudy && S.timeStudy.items ? S.timeStudy.items : [];
@@ -74,7 +77,7 @@ function timeRef() {
 /* Actividades de una estación reunidas de todos los formatos (misma actividad = mismo nombre) */
 function stdActivities(stId, ref = timeRef()) {
   const map = new Map();
-  S.models.forEach(m => m.tasks.forEach(t => {
+  stdModels().forEach(m => m.tasks.forEach(t => {
     if (t.station !== stId || !t.skill) return;
     const k = E.normKey(t.name);
     let a = map.get(k);
@@ -385,7 +388,7 @@ function crewStationView() {
   }).join('');
 
   const glNote = glTot ? `<span class="text-xs text-ink-3">Plantilla completa: ${POS.map((p, k) => `${esc(shortName(names[k]))} ${hhm(gl[p])}`).join(' · ')} · eficiencia ${pct(glTot / (3 * glMax))}</span>` : '';
-  return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed">Elegí una estación y asigná cada actividad a un puesto. La asignación se aplica a <b>todos los formatos</b> que tienen esa actividad en esa estación (se reconocen por el nombre), y el programa la usa en cada proyecto con cuadrilla.</p>
+  return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed">Elegí una estación y asigná cada actividad a un puesto. La asignación se aplica a <b>todos los formatos</b> que tienen esa actividad en esa estación (se reconocen por el nombre), y el programa la usa en cada proyecto con cuadrilla.${S.models.some(isCustom) ? ` Los formatos personalizados (${S.models.filter(isCustom).map(m => esc(m.name)).join(', ')}) no forman parte del estándar: toman el puesto de las actividades que coinciden y el resto se ajusta en <button data-act="crew-tab" data-t="reparto" class="font-medium text-accent hover:underline">Ajuste por modelo</button>.` : ''}</p>
     <div class="mb-4 grid sm:grid-cols-3 gap-3 text-xs text-ink-2 max-w-4xl">
       <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Operario 1, 2 o 3</b>: la hace ese puesto de la cuadrilla asignada al proyecto o lote.</div>
       <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Planta</b>: la hace cualquier operario habilitado, sea o no de la cuadrilla. Útil para subconjuntos y pintura que se adelantan.</div>
