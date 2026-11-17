@@ -751,10 +751,19 @@ document.addEventListener('change', e => {
     else { const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0]; const tk = mm.tasks[+key]; const next = togglePos(E.effPos(S, tk), '@' + t.value); tk.pos = samePos(next, stdOf(tk).slice().sort()) ? [] : next; }
     remember(snapD); changed(true); return;
   }
+  if (t.dataset.crewsize != null) {
+    const snapS = clone(S); const n = Math.min(6, Math.max(2, +t.value || 3));
+    const dropped = S.crews.flatMap(c => (c.members || []).slice(n).filter(Boolean)).map(id => (S.workers.find(w => w.id === id) || {}).name).filter(Boolean);
+    S.crewSize = n;
+    S.crews.forEach(c => { c.members = (c.members || []).slice(0, n); while (c.members.length < n) c.members.push(''); });
+    remember(snapS); changed(true);
+    toast(`Cuadrillas de ${n} operarios.${dropped.length ? ' Quedaron fuera de su cuadrilla: ' + dropped.join(', ') + '.' : ''}`, snapS);
+    return;
+  }
   if (t.dataset.crewmember) {
     if (document.body.classList.contains('readonly')) { render(); return; }
     const snapC = clone(S); const [ci, k] = t.dataset.crewmember.split(':').map(Number);
-    const c = S.crews[ci]; c.members = (c.members || ['', '', '']).slice(0, 3); while (c.members.length < 3) c.members.push('');
+    const c = S.crews[ci]; const n = crewSize(); c.members = (c.members || []).slice(0, n); while (c.members.length < n) c.members.push('');
     c.members[k] = t.value; remember(snapC); changed(true); return;
   }
   if (t.dataset.bal) { const snapC = clone(S); const m = S.models.find(x => x.id === S.ui.model); balanceOf(m).B[t.dataset.bal] = Math.max(0.1, +t.value || 1); remember(snapC); changed(true); return; }
@@ -816,7 +825,7 @@ document.addEventListener('click', e => {
     case 'add-worker': S.workers.push({ id: newId('W', S.workers), name: 'Operario nuevo', skills: [], pct: 100, active: true }); changed(true); break;
     case 'add-crew': {
       let n = S.crews.length + 1; while (S.crews.some(c => c.id === 'C' + n)) n++;
-      S.crews.push({ id: 'C' + n, name: 'Cuadrilla ' + n, members: ['', '', ''] });
+      S.crews.push({ id: 'C' + n, name: 'Cuadrilla ' + n, members: Array(crewSize()).fill('') });
       S.ui.crewTab = 'equipos'; changed(true); break;
     }
     case 'del-crew': {
@@ -851,7 +860,7 @@ document.addEventListener('click', e => {
     case 'std-auto': {
       const ref = S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null;
       const n = stdAutoAssign(S.ui.stdStation, ref);
-      changed(true); toast(`${n} actividades de ${S.ui.stdStation} repartidas entre los 3 puestos, para todos los formatos.`, snap); break;
+      changed(true); toast(`${n} actividades de ${S.ui.stdStation} repartidas entre los ${crewSize()} puestos, para todos los formatos.`, snap); break;
     }
     case 'std-auto-all': {
       const ref = S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null;
@@ -870,7 +879,7 @@ document.addEventListener('click', e => {
     case 'auto-assign': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
       autoAssign(mm, S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null);
-      changed(true); toast(`Tareas de ${mm.name} repartidas entre los 3 puestos.`, snap); break;
+      changed(true); toast(`Tareas de ${mm.name} repartidas entre los ${crewSize()} puestos.`, snap); break;
     }
     case 'clear-assign': {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];

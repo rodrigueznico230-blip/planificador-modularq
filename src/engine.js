@@ -145,7 +145,7 @@
     const wIdx = Object.fromEntries(workers.map((w, i) => [w.id, i]));
     // Cuadrillas: 3 puestos (A, B, C) → operarios concretos
     const crews = Object.fromEntries((S.crews || []).map(c => [c.id, { ...c, idx: (c.members || []).map(id => (id && wIdx[id] != null ? wIdx[id] : null)) }]));
-    const POS = { A: 0, B: 1, C: 2 };
+    const POS = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
 
     const units = [];
     const tasks = [];

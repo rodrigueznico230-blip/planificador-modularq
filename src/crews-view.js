@@ -1,6 +1,13 @@
-/* ---------- Cuadrillas: equipos de 3, reparto de tareas por puesto (Yamazumi) y hoja diaria ---------- */
-const POS = ['A', 'B', 'C'];
-const POS_LABEL = { A: 'Operario 1', B: 'Operario 2', C: 'Operario 3' };
+/* ---------- Cuadrillas: equipos de N operarios (2 a 6), reparto de tareas por puesto (Yamazumi) y hoja diaria ---------- */
+const ALL_POS = ['A', 'B', 'C', 'D', 'E', 'F'];
+const POS_LABEL = Object.fromEntries(ALL_POS.map((p, i) => [p, 'Operario ' + (i + 1)]));
+const crewSize = () => Math.min(6, Math.max(2, Math.round(+S.crewSize || 3)));
+let POS = ALL_POS.slice(0, 3);
+/* Ajusta los puestos activos a la cantidad de operarios por cuadrilla del plan */
+function syncPos() { POS = ALL_POS.slice(0, crewSize()); return POS; }
+const zeroPos = () => Object.fromEntries(POS.map(p => [p, 0]));
+const maxLoad = load => Math.max(0, ...POS.map(p => load[p] || 0));
+const supervisor = () => workerById(S.crewSupervisor);
 /* Asignación: 'A'|'B'|'C' puestos de la cuadrilla, '@<id>' operario designado (de la cuadrilla o no), '*' cualquier operario habilitado */
 const isSupport = x => x === '*' || (typeof x === 'string' && x[0] === '@');
 const posVar = i => `var(--s${i + 1})`;
@@ -18,7 +25,8 @@ function hhm(minutes) {
 
 /* Carga por puesto de un modelo: cada operario del puesto dedica HH / cantidad de puestos */
 function crewLoads(m) {
-  const load = { A: 0, B: 0, C: 0 }, byTask = { A: [], B: [], C: [] };
+  syncPos();
+  const load = zeroPos(), byTask = Object.fromEntries(POS.map(p => [p, []]));
   let unassigned = 0, unassignedMin = 0, total = 0, supportMin = 0;
   for (const t of m.tasks) {
     if (!t.skill) continue;
@@ -32,17 +40,18 @@ function crewLoads(m) {
     total += min;
     for (const p of ps) { load[p] += min / ps.length; byTask[p].push({ t, code: t.id, name: t.name, sub: 'Estación ' + t.station, min: min / ps.length, share: ps.length }); }
   }
-  const max = Math.max(load.A, load.B, load.C);
-  const eff = max ? total / (3 * max) : 0;
+  const max = maxLoad(load);
+  const eff = max ? total / (POS.length * max) : 0;
   return { load, byTask, total, max, eff, unassigned, unassignedMin, supportMin };
 }
 
-/* Reparto automático: equilibra la carga entre los 3 puestos respetando la cuadrilla mínima
+/* Reparto automático: equilibra la carga entre los puestos respetando la cuadrilla mínima
    y prefiriendo el puesto cuyo operario (en la cuadrilla de referencia) tiene la especialidad. */
 function autoAssign(m, refCrew) {
   const skillsOf = ps => { const w = refCrew && workerById((refCrew.members || [])[POS.indexOf(ps)]); return new Set(w ? w.skills || [] : []); };
+  syncPos();
   const crewSkills = refCrew ? new Set(POS.flatMap(ps => [...skillsOf(ps)])) : null;
-  const load = { A: 0, B: 0, C: 0 };
+  const load = zeroPos();
   // tareas más largas primero para un mejor equilibrio, conservando el orden del modelo en la tabla
   const elig = m.tasks.filter(t => t.skill && !E.effPos(S, t).some(isSupport) && (!crewSkills || crewSkills.has(t.skill)));
   m.tasks.forEach(t => { if (!elig.includes(t) && !E.effPos(S, t).some(isSupport)) t.pos = stdOf(t).length ? ['0'] : []; });
@@ -76,6 +85,7 @@ function timeRef() {
 }
 /* Actividades de una estación reunidas de todos los formatos (misma actividad = mismo nombre) */
 function stdActivities(stId, ref = timeRef()) {
+  syncPos();
   const map = new Map();
   stdModels().forEach(m => m.tasks.forEach(t => {
     if (t.station !== stId || !t.skill) return;
@@ -84,7 +94,7 @@ function stdActivities(stId, ref = timeRef()) {
     if (!a) map.set(k, a = { k, name: t.name, models: [], mins: [], cmin: 1, skills: new Set(), first: map.size, overrides: 0 });
     if (!a.models.includes(m)) a.models.push(m);
     if (t.hh != null && t.hh !== '' && +t.hh > 0) a.mins.push(+t.hh * 60);
-    a.cmin = Math.max(a.cmin, Math.min(3, Math.round(+t.cmin || 1)));
+    a.cmin = Math.max(a.cmin, Math.min(POS.length, Math.round(+t.cmin || 1)));
     a.skills.add(t.skill);
     if (t.pos && t.pos.length) a.overrides++;
   }));
@@ -103,7 +113,7 @@ function stdActivities(stId, ref = timeRef()) {
   return out.sort((x, y) => x.ord - y.ord);
 }
 function stdLoads(acts) {
-  const load = { A: 0, B: 0, C: 0 }, byTask = { A: [], B: [], C: [] };
+  const load = zeroPos(), byTask = Object.fromEntries(POS.map(p => [p, []]));
   let total = 0, assigned = 0, unassignedMin = 0, supportMin = 0, support = 0;
   acts.forEach((a, i) => {
     if (!a.pos.length && !a.sup.length) { unassignedMin += a.min; return; }
@@ -115,8 +125,8 @@ function stdLoads(acts) {
     total += a.min * a.pos.length / k;
     a.pos.forEach(p => { load[p] += a.min / k; byTask[p].push({ code: String(i + 1), name: a.name, sub: `${a.models.length} formato${a.models.length === 1 ? '' : 's'}${named ? ' · con apoyo' : ''}`, min: a.min / k, share: k }); });
   });
-  const max = Math.max(load.A, load.B, load.C);
-  return { load, byTask, total, max, eff: max ? total / (3 * max) : 0, assigned, unassigned: acts.length - assigned, unassignedMin, supportMin, support };
+  const max = maxLoad(load);
+  return { load, byTask, total, max, eff: max ? total / (POS.length * max) : 0, assigned, unassigned: acts.length - assigned, unassignedMin, supportMin, support };
 }
 function crewSkillSet(refCrew) {
   const crews = refCrew ? [refCrew] : (S.crews || []);
@@ -124,13 +134,14 @@ function crewSkillSet(refCrew) {
   crews.forEach(c => (c.members || []).forEach(id => { const w = workerById(id); (w && w.skills || []).forEach(k => set.add(k)); }));
   return set;
 }
-/* Reparto automático de una estación: equilibra minutos de referencia entre los 3 puestos */
+/* Reparto automático de una estación: equilibra minutos de referencia entre los puestos */
 function stdAutoAssign(stId, refCrew) {
   const acts = stdActivities(stId);
   const skillsOf = ps => { const w = refCrew && workerById((refCrew.members || [])[POS.indexOf(ps)]); return new Set(w ? w.skills || [] : []); };
   const crewSkills = crewSkillSet(refCrew);
+  syncPos();
   const std = {};
-  const load = { A: 0, B: 0, C: 0 };
+  const load = zeroPos();
   acts.filter(a => a.sup.length).forEach(a => { std[a.k] = a.all; }); // tareas de apoyo: se respetan
   acts.filter(a => !a.sup.length).filter(a => !crewSkills.size || [...a.skills].some(k => crewSkills.has(k)))
     .sort((a, b) => b.min - a.min || a.ord - b.ord)
@@ -166,12 +177,12 @@ function yamaSvg(L, names, aria) {
   const Wc = 600, Hc = 340, ml = 52, mr = 92, mt = 20, mb = 52;
   const ymax = Math.max(L.max, 60) * 1.12;
   const stepY = niceStep(ymax / 5);
-  const iw = Wc - ml - mr, ih = Hc - mt - mb, bw = 104;
+  const iw = Wc - ml - mr, ih = Hc - mt - mb, bw = Math.min(104, iw / POS.length * 0.72);
   const y = v => mt + ih - v / ymax * ih;
   let svg = '';
   for (let v = 0; v <= ymax + 1e-9; v += stepY) svg += `<line x1="${ml}" x2="${Wc - mr}" y1="${y(v)}" y2="${y(v)}" stroke="rgb(var(--line))"/><text x="${ml - 8}" y="${y(v) + 4}" text-anchor="end" font-size="11" fill="rgb(var(--ink-3))">${nf0.format(v)}</text>`;
   POS.forEach((ps, k) => {
-    const cx = ml + iw / 3 * (k + 0.5);
+    const cx = ml + iw / POS.length * (k + 0.5);
     let acc = 0;
     const segs = L.byTask[ps];
     segs.forEach((sgm, j) => {
@@ -184,7 +195,7 @@ function yamaSvg(L, names, aria) {
     svg += `<text x="${cx}" y="${Hc - mb + 20}" text-anchor="middle" font-size="12" font-weight="600" fill="rgb(var(--ink))">${esc(shortName(names[k]))}</text><text x="${cx}" y="${Hc - mb + 36}" text-anchor="middle" font-size="11" fill="rgb(var(--ink-3))">${POS_LABEL[ps]}, ${segs.length} tareas</text>`;
   });
   if (L.total) {
-    const avg = L.total / 3;
+    const avg = L.total / POS.length;
     svg += `<line x1="${ml}" x2="${Wc - mr + 4}" y1="${y(avg)}" y2="${y(avg)}" stroke="rgb(var(--ink-2))" stroke-width="1.5" stroke-dasharray="6 4"/><text x="${Wc - mr + 8}" y="${y(avg) - 4}" font-size="11" font-weight="600" fill="rgb(var(--ink-2))">Carga pareja</text><text x="${Wc - mr + 8}" y="${y(avg) + 11}" font-size="11" fill="rgb(var(--ink-2))">${hhm(avg)}</text>`;
   }
   svg += `<text x="14" y="${mt + ih / 2}" transform="rotate(-90 14 ${mt + ih / 2})" text-anchor="middle" font-size="11" fill="rgb(var(--ink-3))">minutos por módulo</text>`;
@@ -192,8 +203,8 @@ function yamaSvg(L, names, aria) {
 }
 function yamaTitle(L, names) {
   if (!L.max) return 'Repartí las tareas para ver la carga de cada operario';
-  if (L.eff >= 0.9) return 'La carga está pareja entre los 3 operarios';
-  return `${esc(shortName(names[POS.findIndex(p => L.load[p] === L.max)]))} tiene ${hhm(L.max - L.total / 3)} más que la carga pareja`;
+  if (L.eff >= 0.9) return `La carga está pareja entre los ${POS.length} operarios`;
+  return `${esc(shortName(names[POS.findIndex(p => L.load[p] === L.max)]))} tiene ${hhm(L.max - L.total / POS.length)} más que la carga pareja`;
 }
 /* Barras apiladas por estación y puesto */
 function stationStackSvg(perSt, names, aria, sel) {
@@ -239,18 +250,29 @@ const posChips = (cur, names, act, data) => `<div class="flex items-center gap-1
 
 views.cuadrillas = () => {
   S.crews = S.crews || [];
+  syncPos();
   const tab = S.ui.crewTab || 'equipos';
   const head = pageHead('Cuadrillas',
-    'Equipos fijos de 3 operarios. Cada actividad de cada estación tiene su puesto (Operario 1, 2 o 3) y ese estándar vale para todos los formatos que la incluyen. Como el reparto es por puesto y no por persona, sirve igual para cualquier cuadrilla.',
+    `Equipos fijos de ${POS.length} operarios${supervisor() ? `, con ${esc(supervisor().name.replace(/\s*\(.*\)\s*$/, ''))} como supervisor de producción` : ''}. Cada actividad de cada estación tiene su puesto (Operario 1 a ${POS.length}) y ese estándar vale para todos los formatos que la incluyen. Como el reparto es por puesto y no por persona, sirve igual para cualquier cuadrilla.`,
     tab === 'equipos' ? btn(plus + 'Agregar cuadrilla', 'add-crew', true) : tab === 'hoja' ? btn('<svg viewBox="0 0 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.5 7V3.5h9V7M5.5 14H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1.5M6 11.5h8v5H6z" stroke-linejoin="round"/></svg>Imprimir hoja', 'print-sheet') : '');
   const tabs = `<div class="mb-5 no-print">${seg('crewTab', [['equipos', 'Equipos'], ['estacion', 'Estándar por estación'], ['reparto', 'Ajuste por modelo'], ['hoja', 'Hoja diaria']], tab)}</div>`;
   return head + tabs + (tab === 'estacion' ? crewStationView() : tab === 'reparto' ? crewAssignView() : tab === 'hoja' ? crewSheetView() : crewTeamsView());
 };
 
 /* ---------- Equipos ---------- */
+function crewSettings() {
+  const sup = supervisor();
+  const inCrew = sup && crewOf(sup.id);
+  return card(`<div class="p-5 grid gap-5 md:grid-cols-[auto_1fr] items-start">
+    <label class="text-sm text-ink-2" for="crSize">Operarios por cuadrilla<select id="crSize" class="fld mt-1 w-40" data-crewsize>${[2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === POS.length ? 'selected' : ''}>${n} operarios</option>`).join('')}</select><span class="block mt-1 text-xs text-ink-3">Vale para todas las cuadrillas</span></label>
+    <div class="grid sm:grid-cols-[minmax(0,18rem)_1fr] gap-4 items-start">
+      <label class="text-sm text-ink-2" for="crSup">Supervisor de producción<select id="crSup" class="fld mt-1 ${inCrew ? 'invalid' : ''}" data-path="crewSupervisor" data-rerender><option value="">Sin supervisor</option>${S.workers.filter(w => w.active !== false).map(w => `<option value="${esc(w.id)}" ${w.id === S.crewSupervisor ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>${inCrew ? `<span class="block mt-1 text-xs text-bad">También figura en ${esc(inCrew.name)}: quitalo de la cuadrilla.</span>` : ''}</label>
+      <p class="text-xs text-ink-3 leading-relaxed sm:pt-6">Coordina a todas las cuadrillas, no ocupa un puesto y firma las hojas diarias. Sigue disponible en el programa para las tareas de su especialidad (por ejemplo, controles de calidad).</p>
+    </div></div>`);
+}
 function crewTeamsView() {
   if (!S.crews.length) {
-    return card(`<div class="p-10 text-center"><h2 class="text-lg font-semibold">Todavía no hay cuadrillas</h2><p class="mt-2 text-sm text-ink-2 max-w-md mx-auto leading-relaxed">Creá una cuadrilla, elegí sus 3 operarios y asignala a uno o más proyectos en la sección Proyectos. Después repartí las tareas de cada modelo entre los 3 puestos.</p><div class="mt-5">${btn(plus + 'Crear la primera cuadrilla', 'add-crew', true)}</div></div>`);
+    return card(`<div class="p-10 text-center"><h2 class="text-lg font-semibold">Todavía no hay cuadrillas</h2><p class="mt-2 text-sm text-ink-2 max-w-md mx-auto leading-relaxed">Elegí cuántos operarios tiene cada cuadrilla, creá las cuadrillas con sus integrantes y asignalas a los proyectos en la sección Proyectos. Después repartí las tareas de cada estación entre los puestos.</p><div class="mt-5">${btn(plus + 'Crear la primera cuadrilla', 'add-crew', true)}</div></div>`) + `<div class="mt-6">${crewSettings()}</div>`;
   }
   const usage = {};
   S.workers.forEach(w => { usage[w.id] = (S.crews || []).filter(c => (c.members || []).includes(w.id)).length; });
@@ -272,6 +294,7 @@ function crewTeamsView() {
     const units = projs.reduce((a, p) => { const n = (p.crews || []).length || 1; const q = +p.qty || 0; const idx = p.crews.indexOf(c.id); return a + (Math.floor((idx + 1) * q / n) - Math.floor(idx * q / n)); }, 0);
     return card(`<div class="p-5">
       <div class="flex items-start gap-3"><label class="flex-1 text-xs text-ink-3" for="crn${ci}">Nombre<input id="crn${ci}" class="fld mt-1 text-base font-semibold" value="${esc(c.name)}" data-path="crews.${ci}.name" data-rerender></label><div class="pt-5">${delBtn('del-crew', ci, 'Eliminar ' + c.name)}</div></div>
+      ${supervisor() ? `<div class="mt-2 flex items-center gap-2 text-xs text-ink-2"><svg viewBox="0 0 20 20" class="w-4 h-4 text-ink-3" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10" cy="6.5" r="3"/><path d="M4 17c.8-3.2 3.2-5 6-5s5.2 1.8 6 5" stroke-linecap="round"/></svg>Supervisor: <b class="font-medium text-ink">${esc(supervisor().name)}</b></div>` : ''}
       <div class="mt-3">${members}</div>
       <div class="mt-4 grid grid-cols-3 gap-3 rounded-md bg-surface-2 p-3 text-center">
         <div><div class="text-lg font-semibold num">${utils.length ? pct(avgU) : '—'}</div><div class="text-xs text-ink-3">uso promedio</div></div>
@@ -281,7 +304,7 @@ function crewTeamsView() {
       <div class="mt-4"><div class="text-xs font-medium text-ink-3 mb-1.5">Proyectos asignados</div>${projs.length ? `<div class="flex flex-wrap gap-1.5">${projs.map(p => { const pi = S.projects.indexOf(p); return `<span class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-xs">${swatch(pi, 'w-2 h-2')}${esc(p.name)}${(p.crews || []).length > 1 ? ` <span class="text-ink-3">lote ${(p.crews || []).indexOf(c.id) + 1} de ${(p.crews || []).length}</span>` : ''}</span>`; }).join('')}</div>` : '<p class="text-sm text-ink-3">Ninguno. Asignala desde <a class="text-accent font-medium hover:underline" href="#proyectos">Proyectos</a>.</p>'}</div>
     </div>`);
   }).join('');
-  return `<div class="grid md:grid-cols-2 2xl:grid-cols-3 gap-6 items-start">${cards}</div>
+  return `<div class="mb-6">${crewSettings()}</div><div class="grid md:grid-cols-2 2xl:grid-cols-3 gap-6 items-start">${cards}</div>
     <p class="mt-4 text-xs text-ink-3 leading-relaxed max-w-3xl">Un proyecto con varias cuadrillas se reparte en lotes consecutivos: con 10 módulos y 2 cuadrillas, la primera hace los módulos 1 a 5 y la segunda del 6 al 10. Las tareas sin puesto (instalaciones, subcontratos, control) las toma el resto de la planta según su especialidad.</p>`;
 }
 
@@ -299,16 +322,16 @@ function crewAssignView() {
   const controls = `<div class="flex flex-wrap items-end gap-4 mb-4 no-print">
     <label class="text-sm text-ink-2" for="crModel">Modelo<select id="crModel" class="fld mt-1 w-80 max-w-full" data-ui="crewModel">${modelOptions(m.id)}</select></label>
     <label class="text-sm text-ink-2" for="crRef">Ver con los nombres de<select id="crRef" class="fld mt-1 w-56" data-ui="crewRef">${S.crews.length ? S.crews.map(c => `<option value="${esc(c.id)}" ${ref && c.id === ref.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('') : '<option value="">Sin cuadrillas (puestos genéricos)</option>'}</select></label>
-    <div class="ml-auto flex flex-wrap gap-2">${btn('Repartir este modelo', 'auto-assign', false, `title="Equilibra la carga de este formato entre los 3 puestos. Lo que coincide con el estándar de la estación no se guarda como ajuste."`)}${btn('Volver al estándar', 'clear-assign', false, `title="Quita los ajustes propios de este modelo y usa el estándar de cada estación" ${own ? '' : 'disabled'}`)}</div></div>`;
+    <div class="ml-auto flex flex-wrap gap-2">${btn('Repartir este modelo', 'auto-assign', false, `title="Equilibra la carga de este formato entre los ${POS.length} puestos. Lo que coincide con el estándar de la estación no se guarda como ajuste."`)}${btn('Volver al estándar', 'clear-assign', false, `title="Quita los ajustes propios de este modelo y usa el estándar de cada estación" ${own ? '' : 'disabled'}`)}</div></div>`;
 
   const kpis = card(`<div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-line">
-    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), `por módulo, suma de los 3 operarios${L.supportMin ? `, más ${hhm(L.supportMin)} de apoyo` : ''}`)}
+    ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), `por módulo, suma de los ${POS.length} operarios${L.supportMin ? `, más ${hhm(L.supportMin)} de apoyo` : ''}`)}
     ${kpiCell('Carga del más cargado', hhm(L.max), L.max ? `${esc(names[POS.findIndex(p => L.load[p] === L.max)])}: marca el ritmo` : 'Sin reparto')}
-    ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', 'Trabajo total ÷ (3 × carga máxima)', L.max && L.eff < 0.85 ? 'text-warn' : '')}
+    ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', `Trabajo total ÷ (${POS.length} × carga máxima)`, L.max && L.eff < 0.85 ? 'text-warn' : '')}
     ${kpiCell('Ajustes propios', String(own), own ? 'tareas que no siguen el estándar de su estación' : 'Todo sale del estándar por estación')}</div>`);
 
   const stIds = [...new Set(m.tasks.filter(t => t.skill).map(t => t.station))];
-  const perSt = stIds.map(id => { const o = { id, A: 0, B: 0, C: 0, un: 0, sup: 0 }; POS.forEach(ps => L.byTask[ps].forEach(sg => { if (sg.t.station === id) o[ps] += sg.min; })); m.tasks.forEach(t => { if (t.station !== id || !t.skill) return; const ap = E.effPos(S, t); const mn = (+t.hh || 0) * 60; if (!ap.length) o.un += mn; else if (ap.some(isSupport)) { const c = ap.filter(x => POS.includes(x)).length, n = ap.filter(x => x[0] === '@').length; o.sup += c ? mn * n / (c + n) : mn; } }); o.tot = o.A + o.B + o.C; return o; });
+  const perSt = stIds.map(id => { const o = { id, ...zeroPos(), un: 0, sup: 0 }; POS.forEach(ps => L.byTask[ps].forEach(sg => { if (sg.t.station === id) o[ps] += sg.min; })); m.tasks.forEach(t => { if (t.station !== id || !t.skill) return; const ap = E.effPos(S, t); const mn = (+t.hh || 0) * 60; if (!ap.length) o.un += mn; else if (ap.some(isSupport)) { const c = ap.filter(x => POS.includes(x)).length, n = ap.filter(x => x[0] === '@').length; o.sup += c ? mn * n / (c + n) : mn; } }); o.tot = POS.reduce((a, p) => a + o[p], 0); return o; });
 
   let lastSt = null;
   const rows = m.tasks.map((t, i) => {
@@ -327,7 +350,7 @@ function crewAssignView() {
   const missNote = miss ? `<div class="mb-4 rounded-md border border-warn/40 bg-warn-soft px-4 py-3 text-sm">Este modelo tiene <b>${miss} tareas sin tiempo</b>: no suman carga en el diagrama. <a href="#modelos" class="font-medium text-accent hover:underline">Cargar tiempos</a></div>` : '';
   return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed no-print">Cada tarea toma el puesto definido en <button data-act="crew-tab" data-t="estacion" class="font-medium text-accent hover:underline">Estándar por estación</button>. Acá ves cómo queda la carga en un formato puntual y, si hace falta, lo ajustás solo para este modelo.</p>` + missNote + `<div class="space-y-6">${kpis}
     <div class="grid xl:grid-cols-2 gap-6 items-start">
-    ${card(`<div class="px-5 pt-4"><h2 class="text-base font-semibold">${yamaTitle(L, names)}</h2><p class="text-xs text-ink-3 mt-0.5">Yamazumi por operario: minutos que cada uno dedica a un módulo de ${esc(m.name)}. Las tareas de 2 o 3 operarios se dividen entre ellos.</p></div><div class="scroll-x px-3 pb-3">${yamaSvg(L, names, 'Carga por operario del modelo ' + m.name)}</div>`)}
+    ${card(`<div class="px-5 pt-4"><h2 class="text-base font-semibold">${yamaTitle(L, names)}</h2><p class="text-xs text-ink-3 mt-0.5">Yamazumi por operario: minutos que cada uno dedica a un módulo de ${esc(m.name)}. Las tareas de varios operarios se dividen entre ellos.</p></div><div class="scroll-x px-3 pb-3">${yamaSvg(L, names, 'Carga por operario del modelo ' + m.name)}</div>`)}
     ${card(`<div class="px-5 pt-4 flex flex-wrap items-baseline justify-between gap-2"><div><h2 class="text-base font-semibold">Cuadrilla por estación</h2><p class="text-xs text-ink-3 mt-0.5">Minutos por estación y operario. En línea punteada, lo que queda sin puesto.</p></div>${posLegend(names)}</div><div class="scroll-x px-3 pb-3">${perSt.length ? stationStackSvg(perSt, names, 'Minutos de la cuadrilla por estación') : '<p class="p-6 text-sm text-ink-3">Sin tareas.</p>'}</div>`)}
     </div>
     ${card(`<div class="px-5 pt-4 pb-2"><h2 class="text-base font-semibold">Puestos por tarea</h2><p class="text-xs text-ink-3 mt-0.5">Tocá un nombre para sumarlo o quitarlo solo en este modelo. Las tareas sin puesto las hace el resto de la planta según su especialidad.</p></div>
@@ -346,10 +369,10 @@ function crewStationView() {
   S.ui.stdStation = cur.s.id;
   const acts = cur.acts;
   const L = stdLoads(acts);
-  const summary = all.map(x => { const l = stdLoads(x.acts); return { id: x.s.id, A: l.load.A, B: l.load.B, C: l.load.C, tot: l.total, un: l.unassignedMin, sup: l.supportMin, n: x.acts.length, done: l.assigned }; });
+  const summary = all.map(x => { const l = stdLoads(x.acts); return { id: x.s.id, ...l.load, tot: l.total, un: l.unassignedMin, sup: l.supportMin, n: x.acts.length, done: l.assigned }; });
   const totActs = summary.reduce((a, o) => a + o.n, 0), totDone = summary.reduce((a, o) => a + o.done, 0);
-  const gl = { A: 0, B: 0, C: 0 }; summary.forEach(o => POS.forEach(p => { gl[p] += o[p]; }));
-  const glTot = gl.A + gl.B + gl.C, glMax = Math.max(gl.A, gl.B, gl.C);
+  const gl = zeroPos(); summary.forEach(o => POS.forEach(p => { gl[p] += o[p]; }));
+  const glTot = POS.reduce((a, p) => a + gl[p], 0), glMax = maxLoad(gl);
 
   // tiempos faltantes que el cronometraje puede completar
   let fillable = 0;
@@ -365,12 +388,12 @@ function crewStationView() {
   const controls = `<div class="flex flex-wrap items-end gap-4 mb-4 no-print">
     <label class="text-sm text-ink-2" for="stdSt">Estación<select id="stdSt" class="fld mt-1 w-80 max-w-full" data-ui="stdStation">${stOpts}</select></label>
     <label class="text-sm text-ink-2" for="stdRef">Ver con los nombres de<select id="stdRef" class="fld mt-1 w-56" data-ui="crewRef">${S.crews.length ? S.crews.map(c => `<option value="${esc(c.id)}" ${ref && c.id === ref.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('') : '<option value="">Sin cuadrillas (puestos genéricos)</option>'}</select></label>
-    <div class="ml-auto flex flex-wrap gap-2">${btn('Repartir esta estación', 'std-auto', true, 'title="Equilibra los minutos de referencia entre los 3 puestos, respeta la cantidad de operarios que pide cada actividad y prioriza al operario con la especialidad."')}${btn('Repartir todas', 'std-auto-all', false, 'title="Aplica el reparto automático a todas las estaciones. Se puede deshacer."')}${btn('Quitar reparto', 'std-clear', false, L.assigned ? '' : 'disabled')}</div></div>`;
+    <div class="ml-auto flex flex-wrap gap-2">${btn('Repartir esta estación', 'std-auto', true, `title="Equilibra los minutos de referencia entre los ${POS.length} puestos, respeta la cantidad de operarios que pide cada actividad y prioriza al operario con la especialidad."`)}${btn('Repartir todas', 'std-auto-all', false, 'title="Aplica el reparto automático a todas las estaciones. Se puede deshacer."')}${btn('Quitar reparto', 'std-clear', false, L.assigned ? '' : 'disabled')}</div></div>`;
 
   const kpis = card(`<div class="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-line">
     ${kpiCell('Actividades de la estación', String(acts.length), `reunidas de ${new Set(acts.flatMap(a => a.models)).size} formatos`)}
     ${kpiCell('Trabajo de la cuadrilla', hhm(L.total), L.supportMin ? `más ${hhm(L.supportMin)} de apoyo en ${L.support} actividad${L.support === 1 ? '' : 'es'}` : 'por módulo de referencia')}
-    ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', 'Trabajo total ÷ (3 × carga máxima)', L.max && L.eff < 0.85 ? 'text-warn' : '')}
+    ${kpiCell('Eficiencia de balanceo', L.max ? pct(L.eff) : '—', `Trabajo total ÷ (${POS.length} × carga máxima)`, L.max && L.eff < 0.85 ? 'text-warn' : '')}
     ${kpiCell('Cobertura total', pct(totActs ? totDone / totActs : 0), `${totDone} de ${totActs} actividades de todas las estaciones con puesto`, totDone < totActs ? '' : 'text-accent')}</div>`);
 
   const srcPill = a => a.src === 'crono' ? '<span class="text-[11px] font-medium rounded px-1.5 py-0.5 bg-accent/10 text-accent" title="Tiempo cronometrado">crono</span>'
@@ -387,10 +410,10 @@ function crewStationView() {
       <td class="px-2 pr-4 py-2.5">${assignCell(a.all, names, 'toggle-std', `data-k="${esc(a.k)}"`, a.cmin, 's:' + a.k)}${!a.all.length ? '<span class="text-xs text-ink-3 ml-1">sin definir</span>' : ''}</div></td></tr>`;
   }).join('');
 
-  const glNote = glTot ? `<span class="text-xs text-ink-3">Plantilla completa: ${POS.map((p, k) => `${esc(shortName(names[k]))} ${hhm(gl[p])}`).join(' · ')} · eficiencia ${pct(glTot / (3 * glMax))}</span>` : '';
+  const glNote = glTot ? `<span class="text-xs text-ink-3">Plantilla completa: ${POS.map((p, k) => `${esc(shortName(names[k]))} ${hhm(gl[p])}`).join(' · ')} · eficiencia ${pct(glTot / (POS.length * glMax))}</span>` : '';
   return controls + `<p class="mb-4 text-sm text-ink-2 max-w-3xl leading-relaxed">Elegí una estación y asigná cada actividad a un puesto. La asignación se aplica a <b>todos los formatos</b> que tienen esa actividad en esa estación (se reconocen por el nombre), y el programa la usa en cada proyecto con cuadrilla.${S.models.some(isCustom) ? ` Los formatos personalizados (${S.models.filter(isCustom).map(m => esc(m.name)).join(', ')}) no forman parte del estándar: toman el puesto de las actividades que coinciden y el resto se ajusta en <button data-act="crew-tab" data-t="reparto" class="font-medium text-accent hover:underline">Ajuste por modelo</button>.` : ''}</p>
     <div class="mb-4 grid sm:grid-cols-3 gap-3 text-xs text-ink-2 max-w-4xl">
-      <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Operario 1, 2 o 3</b>: la hace ese puesto de la cuadrilla asignada al proyecto o lote.</div>
+      <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Operario 1 a ${POS.length}</b>: la hace ese puesto de la cuadrilla asignada al proyecto o lote.</div>
       <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Planta</b>: la hace cualquier operario habilitado, sea o no de la cuadrilla. Útil para subconjuntos y pintura que se adelantan.</div>
       <div class="rounded-md border border-line bg-surface px-3 py-2"><b class="text-ink">Designar</b>: siempre la hace esa persona, en cualquier proyecto. Se puede combinar con un puesto de la cuadrilla.</div>
     </div>` + srcNote + `<div class="space-y-6">${kpis}
@@ -419,6 +442,7 @@ function workerDaySegs(wi, di) {
   return out.sort((a, b) => a.s - b.s);
 }
 function crewSheetView() {
+  syncPos();
   const active = R.workers;
   if (!active.length) return card('<p class="p-8 text-center text-ink-2">No hay operarios activos.</p>');
   const sel = S.ui.sheetWho || (S.crews[0] ? 'crew:' + S.crews[0].id : 'w:' + active[0].id);
@@ -433,7 +457,7 @@ function crewSheetView() {
   const crew = sel.startsWith('crew:') ? S.crews.find(c => c.id === sel.slice(5)) : crewOf(sel.slice(2));
   const projIdx = new Map(R.projects.map((p, i) => [p, i]));
 
-  const opts = `${S.crews.map(c => `<optgroup label="${esc(c.name)}"><option value="crew:${esc(c.id)}" ${sel === 'crew:' + c.id ? 'selected' : ''}>Toda la cuadrilla (3 hojas)</option>${(c.members || []).filter(Boolean).map(id => { const w = workerById(id); return w ? `<option value="w:${esc(id)}" ${sel === 'w:' + id ? 'selected' : ''}>${esc(w.name)}</option>` : ''; }).join('')}</optgroup>`).join('')}<optgroup label="Todos los operarios">${active.map(w => `<option value="w:${esc(w.id)}" ${sel === 'w:' + w.id && !crewOf(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>`;
+  const opts = `${S.crews.map(c => `<optgroup label="${esc(c.name)}"><option value="crew:${esc(c.id)}" ${sel === 'crew:' + c.id ? 'selected' : ''}>Toda la cuadrilla (${(c.members || []).filter(Boolean).length} hojas)</option>${(c.members || []).filter(Boolean).map(id => { const w = workerById(id); return w ? `<option value="w:${esc(id)}" ${sel === 'w:' + id ? 'selected' : ''}>${esc(w.name)}</option>` : ''; }).join('')}</optgroup>`).join('')}<optgroup label="Todos los operarios">${active.map(w => `<option value="w:${esc(w.id)}" ${sel === 'w:' + w.id && !crewOf(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>`;
   const di0 = workDays.findIndex(d => d.iso === dayIso);
   const prev = workDays[di0 - 1], next = workDays[di0 + 1];
   const controls = `<div class="flex flex-wrap items-end gap-4 mb-4 no-print">
@@ -448,7 +472,7 @@ function crewSheetView() {
     const segs = day.hours ? workerDaySegs(wi, di) : [];
     const availMin = Math.round(day.slots * w.avail) * 60 / R.cal.Q;
     const busyMin = segs.reduce((a, s) => a + (s.e - s.s) * 60 / R.cal.Q, 0);
-    const posOf = (task) => { const c = S.crews.find(cc => cc.id === task.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? POS_LABEL[POS[k]] : 'apoyo a ' + c.name; };
+    const posOf = (task) => { const c = S.crews.find(cc => cc.id === task.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? POS_LABEL[ALL_POS[k]] : 'apoyo a ' + c.name; };
     let cursor = day.slot0;
     const rows = [];
     segs.forEach((sg, n) => {
@@ -469,7 +493,7 @@ function crewSheetView() {
     const wc = crewOf(w.id);
     return `<section class="sheet rounded-lg border border-line bg-surface shadow-sm">
       <header class="flex flex-wrap items-start justify-between gap-4 px-5 pt-5 pb-4 border-b border-line">
-        <div><div class="text-xs text-ink-3">Hoja de procedimiento diario</div><h2 class="text-xl font-semibold tracking-tight">${esc(w.name)}</h2><div class="text-sm text-ink-2">${wc ? esc(wc.name) + ', ' + POS_LABEL[POS[(wc.members || []).indexOf(w.id)]] : 'Sin cuadrilla'}${w.skills && w.skills.length ? ' (' + esc(w.skills.join(', ')) + ')' : ''}</div></div>
+        <div><div class="text-xs text-ink-3">Hoja de procedimiento diario</div><h2 class="text-xl font-semibold tracking-tight">${esc(w.name)}</h2><div class="text-sm text-ink-2">${wc ? esc(wc.name) + ', ' + (POS_LABEL[ALL_POS[(wc.members || []).indexOf(w.id)]] || '') : (w.id === S.crewSupervisor ? 'Supervisor de producción' : 'Sin cuadrilla')}${wc && supervisor() ? ' · Supervisor: ' + esc(supervisor().name.replace(/\s*\(.*\)\s*$/, '')) : ''}${w.skills && w.skills.length ? ' (' + esc(w.skills.join(', ')) + ')' : ''}</div></div>
         <div class="text-right"><div class="text-lg font-semibold capitalize">${esc(fDay.format(new Date(day.ms)).replace(/\./g, ''))}</div><div class="text-sm text-ink-2 num">${day.hours ? `${slotClock(day.slot0)} – ${slotClockEnd(day.slot0 + day.slots)}` : 'Día no laborable'}</div></div>
       </header>
       <div class="grid grid-cols-3 divide-x divide-line border-b border-line text-center">
@@ -479,7 +503,7 @@ function crewSheetView() {
       </div>
       <div class="scroll-x"><table class="w-full text-sm" style="min-width:720px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Horario</th><th class="px-2 font-medium">Proyecto</th><th class="px-2 font-medium">Tarea</th><th class="px-2 font-medium text-right">Tiempo</th><th class="px-2 font-medium">Con</th><th class="px-2 font-medium text-center">Hecho</th><th class="px-2 pr-4 font-medium">Observaciones</th></tr></thead>
       <tbody>${rows.length ? rows.join('') : `<tr><td colspan="7" class="px-5 py-8 text-center text-sm text-ink-2">${day.hours ? 'Sin tareas programadas este día.' : 'Día no laborable.'}</td></tr>`}</tbody></table></div>
-      <footer class="grid grid-cols-2 gap-6 px-5 py-5 text-xs text-ink-3"><div>Firma del operario<span class="block mt-6 border-b border-ink-3/60"></span></div><div>Firma del jefe de producción<span class="block mt-6 border-b border-ink-3/60"></span></div></footer>
+      <footer class="grid grid-cols-2 gap-6 px-5 py-5 text-xs text-ink-3"><div>Firma del operario<span class="block mt-6 border-b border-ink-3/60"></span></div><div>Firma del supervisor de producción${supervisor() ? ` (${esc(supervisor().name.replace(/\s*\(.*\)\s*$/, ''))})` : ''}<span class="block mt-6 border-b border-ink-3/60"></span></div></footer>
     </section>`;
   });
   return controls + `<div class="space-y-6">${sheets.join('') || card('<p class="p-6 text-sm text-ink-2">Esta cuadrilla no tiene operarios asignados.</p>')}</div>`;
