@@ -43,7 +43,7 @@ function persist() { if (document.body.classList.contains('cloud')) return; try 
 S = load();
 S.balance = S.balance || {};
 S.ui = S.ui || { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
-S.crews = S.crews || []; S.stdPos = S.stdPos || {};
+S.crews = S.crews || []; S.stdPos = S.stdPos || {}; S.checks = S.checks || {};
 
 function recompute() {
   R = E.schedule(S);
@@ -752,6 +752,16 @@ document.addEventListener('change', e => {
     else { const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0]; const tk = mm.tasks[+key]; const next = togglePos(E.effPos(S, tk), '@' + t.value); tk.pos = samePos(next, stdOf(tk).slice().sort()) ? [] : next; }
     remember(snapD); changed(true); return;
   }
+  if (t.dataset.chkmot) {
+    const [d, w, ...kk] = t.dataset.chkmot.split('|'); const k = kk.join('|');
+    const rec = ((S.checks || {})[d] || {})[w]; if (!rec || !rec.t[k]) return;
+    const snapM = clone(S); rec.t[k].m = t.value; remember(snapM); changed(true); return;
+  }
+  if (t.dataset.obs) {
+    const [d, w] = t.dataset.obs.split('|');
+    S.checks = S.checks || {}; const dd = S.checks[d] || (S.checks[d] = {}); const rec = dd[w] || (dd[w] = { t: {}, obs: '' });
+    const snapO = clone(S); rec.obs = t.value; remember(snapO); changed(true); return;
+  }
   if (t.dataset.crewsize != null) {
     const snapS = clone(S); const n = Math.min(6, Math.max(2, +t.value || 3));
     const dropped = S.crews.flatMap(c => (c.members || []).slice(n).filter(Boolean)).map(id => (S.workers.find(w => w.id === id) || {}).name).filter(Boolean);
@@ -886,6 +896,18 @@ document.addEventListener('click', e => {
       const mm = S.models.find(x => x.id === S.ui.crewModel) || S.models[0];
       mm.tasks.forEach(t => { t.pos = []; }); changed(true); toast(`${mm.name} vuelve a usar el estándar de cada estación.`, snap); break;
     }
+    case 'chk': {
+      const { d, w, k, s: st } = b.dataset;
+      S.checks = S.checks || {}; const dd = S.checks[d] || (S.checks[d] = {}); const rec = dd[w] || (dd[w] = { t: {}, obs: '' }); rec.t = rec.t || {};
+      const cur = rec.t[k];
+      if (cur && cur.s === st) delete rec.t[k];
+      else {
+        const row = b.closest('tr'); const meta = row && row.querySelector('td:nth-child(2)');
+        const segInfo = sheetSegInfo(d, w, k);
+        rec.t[k] = { s: st, m: st === 'no' ? (cur && cur.m) || '' : '', min: segInfo.min, name: segInfo.name || (meta ? meta.firstChild.textContent : ''), proj: segInfo.proj };
+      }
+      changed(true); break;
+    }
     case 'sheet-day': if (b.dataset.d) { S.ui.sheetDay = b.dataset.d; changed(true); } break;
     case 'print-sheet': try { window.print(); } catch (e) { toast('Tu navegador no permite imprimir desde acá.'); } break;
     case 'del-worker': { const n = S.workers[i].name; const wid = S.workers[i].id; S.crews.forEach(c => { c.members = (c.members || []).map(x => (x === wid ? '' : x)); }); S.workers.splice(i, 1); changed(true); toast(`${n} eliminado del plan.`, snap); break; }
@@ -951,7 +973,7 @@ function doImport(text) {
     const o = JSON.parse(text);
     if (!o.calendar || !Array.isArray(o.projects) || !Array.isArray(o.models) || !Array.isArray(o.workers) || !Array.isArray(o.stations)) throw new Error('Faltan secciones: calendar, projects, models, workers o stations.');
     const snap = clone(S);
-    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.crews = S.crews || []; S.stdPos = S.stdPos || {}; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
+    S = o; S.skills = S.skills || []; S.balance = S.balance || {}; S.crews = S.crews || []; S.stdPos = S.stdPos || {}; S.checks = S.checks || {}; S.ui = { gantt: 'proyectos', zoom: 30, heat: 'dias', model: null, open: {} };
     changed(true); $('#dlgData').close(); toast('Plan cargado.', snap);
     msg.textContent = '';
   } catch (err) {
@@ -989,7 +1011,7 @@ window.PlanApp = {
   exportState: () => { const c = clone(S); delete c.ui; return c; },
   replaceState: (data, opts) => {
     const ui = S.ui; S = clone(data); S.ui = (opts && opts.keepUi) ? ui : (S.ui || ui);
-    S.balance = S.balance || {}; S.skills = S.skills || []; S.crews = S.crews || []; S.stdPos = S.stdPos || {};
+    S.balance = S.balance || {}; S.skills = S.skills || []; S.crews = S.crews || []; S.stdPos = S.stdPos || {}; S.checks = S.checks || {};
     history.length = 0;
     changed(true, true, true);
   },

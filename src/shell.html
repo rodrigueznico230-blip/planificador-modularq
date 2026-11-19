@@ -157,12 +157,23 @@ body.readonly #view [data-act^="add-"], body.readonly #view [data-act^="del-"], 
 .doc-blank { color: #666; letter-spacing: .5px; }
 .doc-row td { height: 34px; font-size: 10.5px; }
 .doc-obs td { height: 58px; vertical-align: top; }
-.doc-sign td { height: 84px; vertical-align: top; font-size: 10.5px; }
+.doc-sign tr:not(.doc-bar) td { height: 84px; vertical-align: top; font-size: 10.5px; }
 .doc-sign-who { border-right: 0 !important; text-align: center; font-weight: 700; }
 .doc-sign-who img { height: 26px; display: block; margin: 2px auto 0; }
 .doc-sign-who b { display: block; margin-top: 30px; } .doc-sign-who img + b { margin-top: 24px; }
 .doc-cli { display: block; font-weight: 400; font-family: Georgia, serif; font-size: 11px; color: #333; margin-top: 6px; }
 .doc-sign-lines { border-left: 0 !important; } .doc-sign-lines div { height: 24px; }
+.doc-box { display: inline-flex; width: 18px; height: 18px; border: 1.5px solid #000; border-radius: 3px; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; line-height: 1; }
+.doc-print { display: none; }
+.chk-wrap { display: inline-flex; gap: 4px; }
+.chk-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #9ca3af; border-radius: 6px; color: #6b7280; background: #fff; transition: background .12s, color .12s, border-color .12s; }
+.chk-btn:hover { border-color: #374151; color: #111; }
+.chk-ok[aria-pressed="true"] { background: rgb(var(--accent)); border-color: rgb(var(--accent)); color: #fff; }
+.chk-no[aria-pressed="true"] { background: #b42318; border-color: #b42318; color: #fff; }
+.chk-mot { display: block; margin: 4px auto 0; width: 100%; max-width: 150px; font-size: 10px; padding: 2px 4px; border: 1px solid #9ca3af; border-radius: 4px; background: #fff; }
+.doc-row.is-ok td { background: #f0fdf4; } .doc-row.is-no td { background: #fef3f2; }
+.doc-obs-in { display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 11px; border: 1px dashed #9ca3af; border-radius: 4px; padding: 4px 6px; resize: vertical; background: #fff; }
+.doc-obs-txt { white-space: pre-wrap; margin-top: 2px; }
 @media print {
   @page { size: letter portrait; margin: 10mm; }
   header.h-14, #nav, .no-print, #toast, #tip, #notice { display: none !important; }
@@ -174,6 +185,8 @@ body.readonly #view [data-act^="add-"], body.readonly #view [data-act^="del-"], 
   .doc-stack { display: block; overflow: visible; }
   .doc { box-shadow: none; border-radius: 0; padding: 0; width: 100%; break-after: page; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .doc:last-child { break-after: auto; }
+  .doc-print { display: inline-flex; } .doc-obs-txt, .doc-sub.doc-print { display: block; }
+  .doc-row.is-ok td, .doc-row.is-no td { background: #fff !important; }
   .scroll-x { overflow: visible !important; }
 }
 .chip-toggle[aria-pressed="true"] { background: rgb(var(--accent-soft)); color: rgb(var(--accent)); border-color: rgb(var(--accent) / .45); }

@@ -452,6 +452,25 @@ function moduleItem(p, n) {
   if (!code) return `${p.name} · Mód. ${n}`;
   return `MOD-${code.replace(/^MQ-/i, '').replace(/_\d+$/, '')}_${String(n).padStart(2, '0')}`;
 }
+/* Checklist digital de la hoja diaria: S.checks[fecha][operario] = { t: { clave: { s: 'ok'|'no', m: motivo, min, name, proj } }, obs } */
+const MOTIVOS = ['Falta de material', 'Espera de tarea anterior', 'Retrabajo o corrección', 'Falla de equipo o herramienta', 'Ausencia o reasignación', 'Tiempo insuficiente', 'Otro'];
+const chkRec = (date, wid) => ((S.checks || {})[date] || {})[wid] || null;
+function realizadoCell(r) {
+  if (!r || !r.check) return '<span class="doc-box" aria-hidden="true"></span>';
+  const c = r.check, st = c.state;
+  const mark = st === 'ok' ? '✓' : st === 'no' ? '✗' : '';
+  const b = (val, label, icon) => `<button data-act="chk" data-d="${esc(c.date)}" data-w="${esc(c.wid)}" data-k="${esc(c.key)}" data-s="${val}" aria-pressed="${st === val}" class="chk-btn chk-${val}" title="${label}">${icon}</button>`;
+  return `<span class="doc-box doc-print">${mark}</span><div class="no-print chk-wrap">${b('ok', 'Realizada', '<svg viewBox="0 0 20 20" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M4.5 10.5l3.5 3.5 7.5-8" stroke-linecap="round" stroke-linejoin="round"/></svg>')}${b('no', 'No realizada', '<svg viewBox="0 0 20 20" class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" stroke-linecap="round"/></svg>')}</div>${st === 'no' ? `<select class="no-print chk-mot" data-chkmot="${esc(c.date)}|${esc(c.wid)}|${esc(c.key)}" aria-label="Motivo"><option value="">Motivo…</option>${MOTIVOS.map(m => `<option ${m === c.motivo ? 'selected' : ''}>${m}</option>`).join('')}</select>${c.motivo ? `<span class="doc-sub doc-print">${esc(c.motivo)}</span>` : ''}` : ''}`;
+}
+
+/* Datos de la tarea marcada (minutos programados ese día) para guardarlos junto con la marca */
+function sheetSegInfo(dayIso, wid, key) {
+  const di = R.cal.days.findIndex(d => d.iso === dayIso), wi = R.workers.findIndex(w => w.id === wid);
+  if (di < 0 || wi < 0) return { min: 0 };
+  const sg = workerDaySegs(wi, di).filter(x => `${x.task.unit.key}|${x.task.tpl.id}` === key);
+  return sg.length ? { min: sg.reduce((a, x) => a + (x.e - x.s) * 60 / R.cal.Q, 0), name: sg[0].task.tpl.name, proj: sg[0].task.unit.project.name } : { min: 0 };
+}
+
 /* Documento imprimible: misma estructura y estilo que el registro de liberación */
 function docSheet(o) {
   const rows = o.rows.slice();
@@ -469,9 +488,9 @@ function docSheet(o) {
     <table class="doc-t doc-join">
       <colgroup><col style="width:24%"><col style="width:56%"><col style="width:20%"></colgroup>
       <tr class="doc-bar"><td colspan="3">${esc(o.rowsTitle || 'Descripción de las Tareas del Día')}</td></tr>
-      <tr><td class="doc-c">Item</td><td class="doc-c">Descripción</td><td class="doc-c">Cantidad (unidades)</td></tr>
-      ${rows.map(r => r ? `<tr class="doc-row"><td>${esc(r.item)}</td><td>${esc(r.desc)}${r.sub ? `<span class="doc-sub">${esc(r.sub)}</span>` : ''}</td><td class="doc-c">${esc(String(r.qty ?? 1))}</td></tr>` : '<tr class="doc-row"><td></td><td></td><td></td></tr>').join('')}
-      <tr class="doc-obs"><td colspan="3"><b>Observaciones:</b>${o.obs ? `<span class="doc-sub">${esc(o.obs)}</span>` : ''}</td></tr>
+      <tr><td class="doc-c">Item</td><td class="doc-c">Descripción</td><td class="doc-c">Realizado</td></tr>
+      ${rows.map(r => r ? `<tr class="doc-row ${r.check && r.check.state ? 'is-' + r.check.state : ''}"><td>${esc(r.item)}</td><td>${esc(r.desc)}${r.sub ? `<span class="doc-sub">${esc(r.sub)}</span>` : ''}</td><td class="doc-c">${realizadoCell(r)}</td></tr>` : `<tr class="doc-row"><td></td><td></td><td class="doc-c">${realizadoCell(null)}</td></tr>`).join('')}
+      <tr class="doc-obs"><td colspan="3"><b>Observaciones:</b>${o.obsKey ? `<textarea class="no-print doc-obs-in" data-obs="${esc(o.obsKey)}" rows="2" placeholder="Motivos, novedades o pendientes del día">${esc(o.obs || '')}</textarea><span class="doc-print doc-obs-txt">${esc(o.obs || '')}</span>` : (o.obs ? `<span class="doc-sub">${esc(o.obs)}</span>` : '')}</td></tr>
     </table>
     <table class="doc-t doc-join doc-sign">
       <colgroup><col style="width:15%"><col style="width:18.3%"><col style="width:15%"><col style="width:18.3%"><col style="width:15%"><col style="width:18.4%"></colgroup>
@@ -535,10 +554,14 @@ function sheetProgramView() {
     const wc = crewOf(w.id);
     const posOf = t => { const c = S.crews.find(cc => cc.id === t.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? '' : 'apoyo a ' + c.name; };
     const pset = [...new Set(segs.map(sg => sg.task.unit.project))];
+    const rec = chkRec(dayIso, w.id);
     const rows = segs.map(sg => {
       const t = sg.task;
       const mates = [...t.crew].filter(x => x !== wi).map(x => plainName(R.workers[x].name));
+      const key = `${t.unit.key}|${t.tpl.id}`;
+      const cr = rec && rec.t && rec.t[key];
       return { item: moduleItem(t.unit.project, t.unit.n), desc: t.tpl.name, qty: 1,
+        check: { date: dayIso, wid: w.id, key, state: cr ? cr.s : '', motivo: cr ? cr.m : '', min: (sg.e - sg.s) * 60 / R.cal.Q, name: t.tpl.name, proj: t.unit.project.name },
         sub: [`${slotClock(sg.s)} – ${slotClockEnd(sg.e)}`, `${t.tpl.station} ${stName(t.tpl.station)}`, mates.length ? 'con ' + mates.join(', ') : '', posOf(t), pset.length > 1 ? t.unit.project.name : ''].filter(Boolean).join(' · ') };
     });
     sheets.push(docSheet({
@@ -546,11 +569,40 @@ function sheetProgramView() {
       cliente: [...new Set(pset.map(p => p.client).filter(Boolean))].join(', '),
       operario: `${plainName(w.name)}${wc ? ` — ${wc.name} · ${POS_LABEL[ALL_POS[(wc.members || []).indexOf(w.id)]]}` : (w.id === S.crewSupervisor ? ' — Supervisor de producción' : '')}`,
       opName: plainName(w.name), supervisor: sup ? plainName(sup.name) : '',
-      fecha: fDate(dayIso), fechaSub: `Jornada ${slotClock(day.slot0)} – ${slotClockEnd(day.slot0 + day.slots)}`, rows
+      fecha: fDate(dayIso), fechaSub: `Jornada ${slotClock(day.slot0)} – ${slotClockEnd(day.slot0 + day.slots)}`, rows,
+      obsKey: `${dayIso}|${w.id}`, obs: rec ? rec.obs || '' : ''
     }));
   });
   const empty = card(`<p class="p-8 text-center text-sm text-ink-2">${day.hours ? 'Nadie de la selección tiene tareas programadas ese día' + (projSel ? ' en ese proyecto' : '') + '.' : 'Día no laborable.'}</p>`);
-  return controls + (sheets.length ? `<p class="mb-3 text-xs text-ink-3 no-print">${sheets.length} hoja${sheets.length === 1 ? '' : 's'} lista${sheets.length === 1 ? '' : 's'} para imprimir (tamaño carta, una por página).</p><div class="doc-stack">${sheets.join('')}</div>` : empty);
+  return controls + complianceCard(ids, dayIso) + (sheets.length ? `<p class="mb-3 text-xs text-ink-3 no-print">${sheets.length} hoja${sheets.length === 1 ? '' : 's'} lista${sheets.length === 1 ? '' : 's'} para imprimir (tamaño carta, una por página).</p><div class="doc-stack">${sheets.join('')}</div>` : empty);
+}
+
+/* Cumplimiento registrado en las hojas: por operario, en minutos programados, con los motivos de lo no realizado */
+function complianceCard(ids, dayIso) {
+  const by = {}, motivos = {};
+  Object.entries(S.checks || {}).forEach(([date, ws]) => Object.entries(ws || {}).forEach(([wid, r]) => {
+    if (!ids.includes(wid)) return;
+    const o = by[wid] || (by[wid] = { days: new Set(), ok: 0, no: 0, okMin: 0, noMin: 0, today: { ok: 0, no: 0 } });
+    Object.values(r.t || {}).forEach(c => {
+      if (!c.s) return;
+      o.days.add(date);
+      if (c.s === 'ok') { o.ok++; o.okMin += c.min || 0; if (date === dayIso) o.today.ok++; }
+      else { o.no++; o.noMin += c.min || 0; if (date === dayIso) o.today.no++; const k = c.m || 'Sin motivo'; motivos[k] = (motivos[k] || 0) + (c.min || 0); }
+    });
+  }));
+  const rowsData = ids.map(id => ({ w: workerById(id), o: by[id] })).filter(x => x.w && x.o && (x.o.ok + x.o.no));
+  if (!rowsData.length) return `<div class="mb-4 no-print rounded-md border border-line bg-surface px-4 py-3 text-sm text-ink-2 flex items-start gap-3"><svg viewBox="0 0 20 20" class="w-5 h-5 text-accent shrink-0" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3.5" y="3.5" width="13" height="13" rx="2"/><path d="M7 10.2l2.2 2.2L13.5 8" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Marcá en cada hoja qué tareas se realizaron (<b>✓</b>) y cuáles no (<b>✗</b>, con su motivo). Con eso se calcula el cumplimiento de cada operario y los motivos de retraso.</span></div>`;
+  const tot = rowsData.reduce((a, x) => ({ okMin: a.okMin + x.o.okMin, noMin: a.noMin + x.o.noMin }), { okMin: 0, noMin: 0 });
+  const mot = Object.entries(motivos).sort((a, b) => b[1] - a[1]);
+  const motMax = Math.max(1, ...mot.map(x => x[1]));
+  const rws = rowsData.map(({ w, o }) => { const c = o.okMin + o.noMin ? o.okMin / (o.okMin + o.noMin) : 0; return `<tr class="border-t border-line-2"><td class="pl-4 pr-2 py-2 font-medium">${esc(plainName(w.name))}</td><td class="px-2 py-2 text-right num">${o.days.size}</td><td class="px-2 py-2 text-right num">${o.ok}</td><td class="px-2 py-2 text-right num ${o.no ? 'text-bad' : ''}">${o.no}</td><td class="px-2 py-2 text-right num">${hhm(o.okMin)}</td><td class="px-2 pr-4 py-2"><div class="flex items-center gap-2 justify-end"><span class="h-1.5 w-24 rounded-full bg-surface-2 overflow-hidden"><span class="block h-full rounded-full ${c < 0.8 ? 'bg-warn' : 'bg-accent'}" style="width:${Math.round(c * 100)}%"></span></span><span class="num font-semibold w-12 text-right ${c < 0.8 ? 'text-warn' : ''}">${pct(c)}</span></div></td></tr>`; }).join('');
+  return `<div class="mb-6 no-print">${card(`<div class="grid lg:grid-cols-[1fr_20rem] divide-y lg:divide-y-0 lg:divide-x divide-line">
+    <div><div class="px-5 pt-4 pb-2"><h2 class="text-base font-semibold">Cumplimiento registrado</h2><p class="text-xs text-ink-3 mt-0.5">Acumulado de todas las hojas marcadas para la selección. El cumplimiento se mide en minutos programados: realizados ÷ (realizados + no realizados).</p></div>
+      <div class="scroll-x"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Operario</th><th class="px-2 font-medium text-right">Días</th><th class="px-2 font-medium text-right">Realizadas</th><th class="px-2 font-medium text-right">No realizadas</th><th class="px-2 font-medium text-right">Tiempo realizado</th><th class="px-2 pr-4 font-medium text-right">Cumplimiento</th></tr></thead><tbody>${rws}</tbody></table></div></div>
+    <div class="px-5 py-4"><h3 class="text-sm font-semibold">Motivos de lo no realizado</h3><p class="text-xs text-ink-3">Tiempo programado que no se hizo, por motivo</p>
+      ${mot.length ? `<ul class="mt-3 space-y-2">${mot.map(([k, v]) => `<li><div class="flex justify-between text-xs"><span>${esc(k)}</span><span class="num font-medium">${hhm(v)}</span></div><span class="mt-1 block h-1.5 rounded-full bg-surface-2 overflow-hidden"><span class="block h-full rounded-full bg-bad/70" style="width:${Math.round(v / motMax * 100)}%"></span></span></li>`).join('')}</ul>` : '<p class="mt-3 text-sm text-ink-2">Sin tareas no realizadas.</p>'}
+      <p class="mt-3 text-xs text-ink-3">Total: ${hhm(tot.okMin)} realizados, ${hhm(tot.noMin)} no realizados.</p></div>
+  </div>`)}</div>`;
 }
 
 /* Hoja estándar por puesto para un formato guardado: todas las tareas que hace cada operario en un módulo */
