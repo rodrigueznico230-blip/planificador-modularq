@@ -154,7 +154,7 @@
     S.projects.forEach((p, pi) => {
       const m = models[p.model];
       const pr = {
-        id: p.id, name: p.name, client: p.client, model: p.model, modelName: m ? m.name : '—',
+        id: p.id, name: p.name, client: p.client, code: p.code, model: p.model, modelName: m ? m.name : '—',
         qty: Math.max(0, Math.round(+p.qty || 0)), color: pi, prio: +p.prio || 2,
         release: p.release, due: p.due, units: [], excluded: false, reason: ''
       };

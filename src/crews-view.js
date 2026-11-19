@@ -254,7 +254,7 @@ views.cuadrillas = () => {
   const tab = S.ui.crewTab || 'equipos';
   const head = pageHead('Cuadrillas',
     `Equipos fijos de ${POS.length} operarios${supervisor() ? `, con ${esc(supervisor().name.replace(/\s*\(.*\)\s*$/, ''))} como supervisor de producción` : ''}. Cada actividad de cada estación tiene su puesto (Operario 1 a ${POS.length}) y ese estándar vale para todos los formatos que la incluyen. Como el reparto es por puesto y no por persona, sirve igual para cualquier cuadrilla.`,
-    tab === 'equipos' ? btn(plus + 'Agregar cuadrilla', 'add-crew', true) : tab === 'hoja' ? btn('<svg viewBox="0 0 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.5 7V3.5h9V7M5.5 14H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1.5M6 11.5h8v5H6z" stroke-linejoin="round"/></svg>Imprimir hoja', 'print-sheet') : '');
+    tab === 'equipos' ? btn(plus + 'Agregar cuadrilla', 'add-crew', true) : tab === 'hoja' && sheetPrintable() ? btn('<svg viewBox="0 0 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5.5 7V3.5h9V7M5.5 14H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1.5M6 11.5h8v5H6z" stroke-linejoin="round"/></svg>Imprimir hoja', 'print-sheet') : '');
   const tabs = `<div class="mb-5 no-print">${seg('crewTab', [['equipos', 'Equipos'], ['estacion', 'Estándar por estación'], ['reparto', 'Ajuste por modelo'], ['hoja', 'Hoja diaria']], tab)}</div>`;
   return head + tabs + (tab === 'estacion' ? crewStationView() : tab === 'reparto' ? crewAssignView() : tab === 'hoja' ? crewSheetView() : crewTeamsView());
 };
@@ -441,70 +441,164 @@ function workerDaySegs(wi, di) {
   }
   return out.sort((a, b) => a.s - b.s);
 }
+/* ---------- Hoja de procedimiento diario (formato MQ-REG-HPD_01, basado en MQ-REG-LIB_01) ---------- */
+const MQ_LOGO = 'data:image/png;base64,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';
+const PLANT_ADDRESS = 'MODULARQ - MAURIN 6688, DEPARTAMENTO POCITO, PROVINCIA DE SAN JUAN - ARGENTINA';
+const plainName = n => String(n || '').replace(/\s*\(.*\)\s*$/, '').trim();
+const fDate = iso => { const [y, m, d] = String(iso).split('-'); return d ? `${d}/${m}/${y}` : ''; };
+/* Código de ítem por módulo: MQ-SI-SAN_01 → MOD-SI-SAN_01, _02… Sin código, nombre del proyecto y módulo */
+function moduleItem(p, n) {
+  const code = String(p.code || '').trim();
+  if (!code) return `${p.name} · Mód. ${n}`;
+  return `MOD-${code.replace(/^MQ-/i, '').replace(/_\d+$/, '')}_${String(n).padStart(2, '0')}`;
+}
+/* Documento imprimible: misma estructura y estilo que el registro de liberación */
+function docSheet(o) {
+  const rows = o.rows.slice();
+  while (rows.length < (o.minRows || 6)) rows.push(null);
+  const sign = (who, logo, cli, name) => `<td class="doc-sign-who ${o.sigFirst === who ? '' : ''}">${logo ? `<img src="${MQ_LOGO}" alt="ModulArq">` : `<span class="doc-cli">${esc(cli || 'Cliente')}</span>`}<b>${who}</b></td><td class="doc-sign-lines"><div>Firma:</div><div>Aclaración: ${esc(name || '')}</div><div>Fecha:</div></td>`;
+  return `<section class="doc">
+    <table class="doc-t">
+      <colgroup><col style="width:24%"><col style="width:24%"><col style="width:12%"><col style="width:20%"><col style="width:20%"></colgroup>
+      <tr class="doc-head"><td class="doc-logo"><img src="${MQ_LOGO}" alt="ModulArq"></td><td colspan="3" class="doc-title">${esc(o.title || 'Hoja de Procedimiento Diario')}</td><td class="doc-code">MQ-REG-HPD_01</td></tr>
+      <tr class="doc-bar"><td colspan="5">Información General</td></tr>
+      <tr><td>Proyecto:</td><td colspan="2">${esc(o.proyecto)}</td><td class="doc-c">CLIENTE:</td><td>${esc(o.cliente || '—')}</td></tr>
+      <tr><td>Operario:</td><td colspan="2">${esc(o.operario)}</td><td class="doc-c">Supervisor:</td><td>${esc(o.supervisor || '—')}</td></tr>
+      <tr><td>Planta:</td><td colspan="2">${PLANT_ADDRESS}</td><td class="doc-c">Fecha:</td><td class="doc-c">${o.fecha ? esc(o.fecha) : '<span class="doc-blank">____ / ____ / ________</span>'}${o.fechaSub ? `<span class="doc-sub">${esc(o.fechaSub)}</span>` : ''}</td></tr>
+    </table>
+    <table class="doc-t doc-join">
+      <colgroup><col style="width:24%"><col style="width:56%"><col style="width:20%"></colgroup>
+      <tr class="doc-bar"><td colspan="3">${esc(o.rowsTitle || 'Descripción de las Tareas del Día')}</td></tr>
+      <tr><td class="doc-c">Item</td><td class="doc-c">Descripción</td><td class="doc-c">Cantidad (unidades)</td></tr>
+      ${rows.map(r => r ? `<tr class="doc-row"><td>${esc(r.item)}</td><td>${esc(r.desc)}${r.sub ? `<span class="doc-sub">${esc(r.sub)}</span>` : ''}</td><td class="doc-c">${esc(String(r.qty ?? 1))}</td></tr>` : '<tr class="doc-row"><td></td><td></td><td></td></tr>').join('')}
+      <tr class="doc-obs"><td colspan="3"><b>Observaciones:</b>${o.obs ? `<span class="doc-sub">${esc(o.obs)}</span>` : ''}</td></tr>
+    </table>
+    <table class="doc-t doc-join doc-sign">
+      <colgroup><col style="width:15%"><col style="width:18.3%"><col style="width:15%"><col style="width:18.3%"><col style="width:15%"><col style="width:18.4%"></colgroup>
+      <tr class="doc-bar"><td colspan="6">Aprobación Final</td></tr>
+      <tr>${sign('Control de Calidad', false, o.cliente, '')}${sign('Supervisor', true, '', o.supervisor)}${sign('Operario', true, '', o.opName)}</tr>
+    </table>
+  </section>`;
+}
+
+function sheetPrintable() {
+  if (S.ui.sheetMode !== 'fmt') return true;
+  const m = S.models.find(x => x.id === S.ui.sheetModel) || S.models.find(x => x.tasks.some(t => t.skill));
+  return !!m && formatCoverage(m).ok;
+}
+/* ¿El formato tiene todas sus tareas con puesto, apoyo de planta u operario designado? */
+function formatCoverage(m) {
+  const work = m.tasks.filter(t => t.skill);
+  const missing = work.filter(t => !E.effPos(S, t).length);
+  return { work, missing, ok: work.length > 0 && !missing.length };
+}
+
 function crewSheetView() {
   syncPos();
+  const mode = S.ui.sheetMode === 'fmt' ? 'fmt' : 'prog';
+  const modeSeg = `<div class="mb-4 no-print">${seg('sheetMode', [['prog', 'Proyectos activos'], ['fmt', 'Formato estándar']], mode)}</div>`;
+  return modeSeg + (mode === 'fmt' ? sheetFormatView() : sheetProgramView());
+}
+
+/* Hoja de cada operario para un día del programa (proyectos activos) */
+function sheetProgramView() {
   const active = R.workers;
   if (!active.length) return card('<p class="p-8 text-center text-ink-2">No hay operarios activos.</p>');
   const sel = S.ui.sheetWho || (S.crews[0] ? 'crew:' + S.crews[0].id : 'w:' + active[0].id);
-  // primer día con trabajo
   const workDays = R.cal.days.slice(0, R.lastDay + 1).filter(d => d.hours);
   let dayIso = S.ui.sheetDay;
   if (!dayIso || !workDays.some(d => d.iso === dayIso)) dayIso = (workDays[0] || R.cal.days[0]).iso;
   S.ui.sheetDay = dayIso;
   const di = R.cal.days.findIndex(d => d.iso === dayIso);
   const day = R.cal.days[di];
-  const ids = sel.startsWith('crew:') ? ((S.crews.find(c => c.id === sel.slice(5)) || {}).members || []).filter(Boolean) : [sel.slice(2)];
-  const crew = sel.startsWith('crew:') ? S.crews.find(c => c.id === sel.slice(5)) : crewOf(sel.slice(2));
-  const projIdx = new Map(R.projects.map((p, i) => [p, i]));
+  const projs = R.projects.filter(p => !p.excluded && p.units.length);
+  const projSel = projs.some(p => p.id === S.ui.sheetProj) ? S.ui.sheetProj : '';
+  const ids = sel === 'all' ? active.filter(w => crewOf(w.id) || w.id === S.crewSupervisor).map(w => w.id) : sel.startsWith('crew:') ? ((S.crews.find(c => c.id === sel.slice(5)) || {}).members || []).filter(Boolean) : [sel.slice(2)];
+  const sup = supervisor();
 
-  const opts = `${S.crews.map(c => `<optgroup label="${esc(c.name)}"><option value="crew:${esc(c.id)}" ${sel === 'crew:' + c.id ? 'selected' : ''}>Toda la cuadrilla (${(c.members || []).filter(Boolean).length} hojas)</option>${(c.members || []).filter(Boolean).map(id => { const w = workerById(id); return w ? `<option value="w:${esc(id)}" ${sel === 'w:' + id ? 'selected' : ''}>${esc(w.name)}</option>` : ''; }).join('')}</optgroup>`).join('')}<optgroup label="Todos los operarios">${active.map(w => `<option value="w:${esc(w.id)}" ${sel === 'w:' + w.id && !crewOf(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>`;
+  const opts = `<option value="all" ${sel === 'all' ? 'selected' : ''}>Todas las cuadrillas</option>${S.crews.map(c => `<optgroup label="${esc(c.name)}"><option value="crew:${esc(c.id)}" ${sel === 'crew:' + c.id ? 'selected' : ''}>Toda la cuadrilla (${(c.members || []).filter(Boolean).length} hojas)</option>${(c.members || []).filter(Boolean).map(id => { const w = workerById(id); return w ? `<option value="w:${esc(id)}" ${sel === 'w:' + id ? 'selected' : ''}>${esc(w.name)}</option>` : ''; }).join('')}</optgroup>`).join('')}<optgroup label="Todos los operarios">${active.map(w => `<option value="w:${esc(w.id)}" ${sel === 'w:' + w.id && !crewOf(w.id) ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</optgroup>`;
   const di0 = workDays.findIndex(d => d.iso === dayIso);
   const prev = workDays[di0 - 1], next = workDays[di0 + 1];
   const controls = `<div class="flex flex-wrap items-end gap-4 mb-4 no-print">
-    <label class="text-sm text-ink-2" for="shWho">Operario o cuadrilla<select id="shWho" class="fld mt-1 w-72" data-ui="sheetWho">${opts}</select></label>
+    <label class="text-sm text-ink-2" for="shWho">Operario o cuadrilla<select id="shWho" class="fld mt-1 w-64" data-ui="sheetWho">${opts}</select></label>
+    <label class="text-sm text-ink-2" for="shProj">Proyecto<select id="shProj" class="fld mt-1 w-60" data-ui="sheetProj"><option value="">Todos los proyectos activos</option>${projs.map(p => `<option value="${esc(p.id)}" ${p.id === projSel ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
     <div class="text-sm text-ink-2"><label for="shDay">Día</label><div class="mt-1 flex items-center gap-1"><button data-act="sheet-day" data-d="${prev ? prev.iso : ''}" ${prev ? '' : 'disabled'} class="rounded-md border border-line px-2 py-1.5 hover:bg-surface-2 disabled:opacity-40" aria-label="Día hábil anterior"><svg viewBox="0 0 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.5 5l-5 5 5 5" stroke-linecap="round" stroke-linejoin="round"/></svg></button><input id="shDay" type="date" class="fld w-44" value="${esc(dayIso)}" min="${esc(R.cal.days[0].iso)}" max="${esc(R.cal.days[R.lastDay].iso)}" data-ui="sheetDay"><button data-act="sheet-day" data-d="${next ? next.iso : ''}" ${next ? '' : 'disabled'} class="rounded-md border border-line px-2 py-1.5 hover:bg-surface-2 disabled:opacity-40" aria-label="Día hábil siguiente"><svg viewBox="0 0 20 20" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.5 5l5 5-5 5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div>
-    <p class="text-xs text-ink-3 max-w-sm ml-auto">Los horarios salen del programa y del inicio de jornada (${esc(S.calendar.startTime || '07:00')}, en Calendario). Cambian si cambia el plan.</p></div>`;
+    <p class="text-xs text-ink-3 max-w-xs ml-auto">Horarios según el programa y el inicio de jornada (${esc(S.calendar.startTime || '07:00')}). Si un operario no tiene tareas ese día o en ese proyecto, no se genera su hoja.</p></div>`;
 
-  const sheets = ids.map(id => {
+  const sheets = [];
+  ids.forEach(id => {
     const wi = R.workers.findIndex(w => w.id === id);
     const w = R.workers[wi];
-    if (!w) return card(`<p class="p-6 text-sm text-ink-2">${esc((workerById(id) || {}).name || id)} está inactivo y no tiene tareas programadas.</p>`);
-    const segs = day.hours ? workerDaySegs(wi, di) : [];
-    const availMin = Math.round(day.slots * w.avail) * 60 / R.cal.Q;
-    const busyMin = segs.reduce((a, s) => a + (s.e - s.s) * 60 / R.cal.Q, 0);
-    const posOf = (task) => { const c = S.crews.find(cc => cc.id === task.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? POS_LABEL[ALL_POS[k]] : 'apoyo a ' + c.name; };
-    let cursor = day.slot0;
-    const rows = [];
-    segs.forEach((sg, n) => {
-      if (sg.s > cursor) rows.push(`<tr class="border-t border-line-2 text-ink-3"><td class="pl-4 pr-2 py-2 num whitespace-nowrap">${slotClock(cursor)} – ${slotClock(sg.s)}</td><td colspan="6" class="px-2 py-2 text-xs italic">Sin tarea programada (${hhm((sg.s - cursor) * 60 / R.cal.Q)})</td></tr>`);
-      const t = sg.task, pi = projIdx.get(t.unit.project);
-      const mates = [...t.crew].filter(x => x !== wi).map(x => R.workers[x].name);
-      rows.push(`<tr class="border-t border-line-2 align-top"><td class="pl-4 pr-2 py-2.5 num whitespace-nowrap font-medium">${slotClock(sg.s)} – ${slotClockEnd(sg.e)}</td>
-        <td class="px-2 py-2.5"><div class="flex items-center gap-1.5">${swatch(pi, 'w-2 h-2')}<span class="font-medium">${esc(t.unit.project.name)}</span></div><div class="text-xs text-ink-3">Módulo ${t.unit.n} de ${t.unit.project.qty}</div></td>
-        <td class="px-2 py-2.5"><span class="num text-ink-3 text-xs">${esc(t.tpl.id)}</span> ${esc(t.tpl.name)}<div class="text-xs text-ink-3">${esc(t.tpl.station)} ${esc((S.stations.find(s => s.id === t.tpl.station) || {}).name || '')}${posOf(t) ? ', ' + posOf(t) : ''}</div></td>
-        <td class="px-2 py-2.5 text-right num whitespace-nowrap">${hhm((sg.e - sg.s) * 60 / R.cal.Q)}</td>
-        <td class="px-2 py-2.5 text-xs text-ink-2">${mates.length ? esc(mates.join(', ')) : 'Solo'}</td>
-        <td class="px-2 py-2.5 text-center"><span class="inline-block w-4 h-4 rounded border border-ink-3/60" aria-label="Casilla para marcar"></span></td>
-        <td class="px-2 pr-4 py-2.5"><span class="block h-5 border-b border-dotted border-ink-3/60 min-w-24"></span></td></tr>`);
-      cursor = sg.e;
-    });
-    const endSlot = day.slot0 + Math.round(day.slots * w.avail);
-    if (segs.length && cursor < endSlot) rows.push(`<tr class="border-t border-line-2 text-ink-3"><td class="pl-4 pr-2 py-2 num whitespace-nowrap">${slotClock(cursor)} – ${slotClockEnd(endSlot)}</td><td colspan="6" class="px-2 py-2 text-xs italic">Sin tarea programada (${hhm((endSlot - cursor) * 60 / R.cal.Q)})</td></tr>`);
+    if (!w || !day.hours) return;
+    const segs = workerDaySegs(wi, di).filter(sg => !projSel || sg.task.unit.project.id === projSel);
+    if (!segs.length) return;
     const wc = crewOf(w.id);
-    return `<section class="sheet rounded-lg border border-line bg-surface shadow-sm">
-      <header class="flex flex-wrap items-start justify-between gap-4 px-5 pt-5 pb-4 border-b border-line">
-        <div><div class="text-xs text-ink-3">Hoja de procedimiento diario</div><h2 class="text-xl font-semibold tracking-tight">${esc(w.name)}</h2><div class="text-sm text-ink-2">${wc ? esc(wc.name) + ', ' + (POS_LABEL[ALL_POS[(wc.members || []).indexOf(w.id)]] || '') : (w.id === S.crewSupervisor ? 'Supervisor de producción' : 'Sin cuadrilla')}${wc && supervisor() ? ' · Supervisor: ' + esc(supervisor().name.replace(/\s*\(.*\)\s*$/, '')) : ''}${w.skills && w.skills.length ? ' (' + esc(w.skills.join(', ')) + ')' : ''}</div></div>
-        <div class="text-right"><div class="text-lg font-semibold capitalize">${esc(fDay.format(new Date(day.ms)).replace(/\./g, ''))}</div><div class="text-sm text-ink-2 num">${day.hours ? `${slotClock(day.slot0)} – ${slotClockEnd(day.slot0 + day.slots)}` : 'Día no laborable'}</div></div>
-      </header>
-      <div class="grid grid-cols-3 divide-x divide-line border-b border-line text-center">
-        <div class="py-3"><div class="text-lg font-semibold num">${segs.length}</div><div class="text-xs text-ink-3">tareas</div></div>
-        <div class="py-3"><div class="text-lg font-semibold num">${hhm(busyMin)}</div><div class="text-xs text-ink-3">programado</div></div>
-        <div class="py-3"><div class="text-lg font-semibold num ${availMin && busyMin / availMin < 0.6 ? 'text-warn' : ''}">${availMin ? pct(busyMin / availMin) : '—'}</div><div class="text-xs text-ink-3">de la jornada</div></div>
-      </div>
-      <div class="scroll-x"><table class="w-full text-sm" style="min-width:720px"><thead><tr class="text-left text-xs text-ink-3"><th class="pl-4 pr-2 py-2 font-medium">Horario</th><th class="px-2 font-medium">Proyecto</th><th class="px-2 font-medium">Tarea</th><th class="px-2 font-medium text-right">Tiempo</th><th class="px-2 font-medium">Con</th><th class="px-2 font-medium text-center">Hecho</th><th class="px-2 pr-4 font-medium">Observaciones</th></tr></thead>
-      <tbody>${rows.length ? rows.join('') : `<tr><td colspan="7" class="px-5 py-8 text-center text-sm text-ink-2">${day.hours ? 'Sin tareas programadas este día.' : 'Día no laborable.'}</td></tr>`}</tbody></table></div>
-      <footer class="grid grid-cols-2 gap-6 px-5 py-5 text-xs text-ink-3"><div>Firma del operario<span class="block mt-6 border-b border-ink-3/60"></span></div><div>Firma del supervisor de producción${supervisor() ? ` (${esc(supervisor().name.replace(/\s*\(.*\)\s*$/, ''))})` : ''}<span class="block mt-6 border-b border-ink-3/60"></span></div></footer>
-    </section>`;
+    const posOf = t => { const c = S.crews.find(cc => cc.id === t.unit.crew); if (!c) return ''; const k = (c.members || []).indexOf(w.id); return k >= 0 ? '' : 'apoyo a ' + c.name; };
+    const pset = [...new Set(segs.map(sg => sg.task.unit.project))];
+    const rows = segs.map(sg => {
+      const t = sg.task;
+      const mates = [...t.crew].filter(x => x !== wi).map(x => plainName(R.workers[x].name));
+      return { item: moduleItem(t.unit.project, t.unit.n), desc: t.tpl.name, qty: 1,
+        sub: [`${slotClock(sg.s)} – ${slotClockEnd(sg.e)}`, `${t.tpl.station} ${stName(t.tpl.station)}`, mates.length ? 'con ' + mates.join(', ') : '', posOf(t), pset.length > 1 ? t.unit.project.name : ''].filter(Boolean).join(' · ') };
+    });
+    sheets.push(docSheet({
+      proyecto: pset.map(p => p.name).join(', '),
+      cliente: [...new Set(pset.map(p => p.client).filter(Boolean))].join(', '),
+      operario: `${plainName(w.name)}${wc ? ` — ${wc.name} · ${POS_LABEL[ALL_POS[(wc.members || []).indexOf(w.id)]]}` : (w.id === S.crewSupervisor ? ' — Supervisor de producción' : '')}`,
+      opName: plainName(w.name), supervisor: sup ? plainName(sup.name) : '',
+      fecha: fDate(dayIso), fechaSub: `Jornada ${slotClock(day.slot0)} – ${slotClockEnd(day.slot0 + day.slots)}`, rows
+    }));
   });
-  return controls + `<div class="space-y-6">${sheets.join('') || card('<p class="p-6 text-sm text-ink-2">Esta cuadrilla no tiene operarios asignados.</p>')}</div>`;
+  const empty = card(`<p class="p-8 text-center text-sm text-ink-2">${day.hours ? 'Nadie de la selección tiene tareas programadas ese día' + (projSel ? ' en ese proyecto' : '') + '.' : 'Día no laborable.'}</p>`);
+  return controls + (sheets.length ? `<p class="mb-3 text-xs text-ink-3 no-print">${sheets.length} hoja${sheets.length === 1 ? '' : 's'} lista${sheets.length === 1 ? '' : 's'} para imprimir (tamaño carta, una por página).</p><div class="doc-stack">${sheets.join('')}</div>` : empty);
+}
+
+/* Hoja estándar por puesto para un formato guardado: todas las tareas que hace cada operario en un módulo */
+function sheetFormatView() {
+  const models = S.models.filter(m => m.tasks.some(t => t.skill));
+  if (!models.length) return card('<p class="p-8 text-center text-ink-2">No hay formatos con tareas.</p>');
+  const m = models.find(x => x.id === S.ui.sheetModel) || models[0];
+  S.ui.sheetModel = m.id;
+  const ref = S.crews.find(c => c.id === S.ui.crewRef) || S.crews[0] || null;
+  const names = POS.map(ps => (ref ? plainName(memberName(ref, ps)) : POS_LABEL[ps]));
+  const cov = formatCoverage(m);
+  const who = S.ui.sheetPos || 'all';
+  const sup = supervisor();
+  const controls = `<div class="flex flex-wrap items-end gap-4 mb-4 no-print">
+    <label class="text-sm text-ink-2" for="shModel">Formato<select id="shModel" class="fld mt-1 w-80 max-w-full" data-ui="sheetModel">${models.map(x => { const c = formatCoverage(x); return `<option value="${esc(x.id)}" ${x.id === m.id ? 'selected' : ''}>${c.ok ? '✓ ' : '○ '}${esc(x.name)}${c.ok ? '' : ` (faltan ${c.missing.length})`}</option>`; }).join('')}</select></label>
+    <label class="text-sm text-ink-2" for="shRef">Con los nombres de<select id="shRef" class="fld mt-1 w-52" data-ui="crewRef">${S.crews.length ? S.crews.map(c => `<option value="${esc(c.id)}" ${ref && c.id === ref.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('') : '<option value="">Puestos genéricos</option>'}</select></label>
+    <label class="text-sm text-ink-2" for="shPos">Hojas<select id="shPos" class="fld mt-1 w-56" data-ui="sheetPos"><option value="all" ${who === 'all' ? 'selected' : ''}>Todos los puestos y apoyo</option>${POS.map((ps, k) => `<option value="${ps}" ${who === ps ? 'selected' : ''}>${esc(POS_LABEL[ps])}: ${esc(names[k])}</option>`).join('')}<option value="sup" ${who === 'sup' ? 'selected' : ''}>Apoyo de planta</option></select></label>
+    <p class="text-xs text-ink-3 max-w-xs ml-auto">Procedimiento estándar de un módulo: qué hace cada puesto, en orden y con su tiempo de referencia. La fecha queda en blanco para completar.</p></div>`;
+  if (!cov.ok) {
+    const list = cov.missing.slice(0, 12).map(t => `<li><span class="num text-ink-3">${esc(t.station)}</span> ${esc(t.name)}</li>`).join('');
+    return controls + card(`<div class="p-6"><div class="flex items-start gap-3"><span class="mt-0.5 inline-flex w-6 h-6 shrink-0 items-center justify-center rounded-full bg-warn-soft text-warn font-bold">!</span><div><h2 class="text-base font-semibold">${esc(m.name)} todavía tiene ${cov.missing.length} tarea${cov.missing.length === 1 ? '' : 's'} sin asignar</h2><p class="mt-1 text-sm text-ink-2">La hoja estándar se puede imprimir cuando todas las tareas tienen un puesto de la cuadrilla, apoyo de planta o un operario designado.</p><ul class="mt-3 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">${list}</ul>${cov.missing.length > 12 ? `<p class="mt-2 text-xs text-ink-3">y ${cov.missing.length - 12} más.</p>` : ''}<div class="mt-4 flex flex-wrap gap-2"><button data-act="crew-tab" data-t="estacion" class="rounded-md bg-accent text-white px-3 py-1.5 text-sm font-medium hover:opacity-90">Ir a Estándar por estación</button><button data-act="crew-tab" data-t="reparto" class="rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2">Ajustar este modelo</button></div></div></div></div>`);
+  }
+  const minOf = t => (+t.hh || 0) * 60;
+  const sheets = [];
+  const stdSub = (t, extra) => [`${t.station} ${stName(t.station)}`, t.hh != null && t.hh !== '' ? `tiempo estándar ${hhm(minOf(t))}` : 'sin tiempo', extra].filter(Boolean).join(' · ');
+  POS.forEach((ps, k) => {
+    if (who !== 'all' && who !== ps) return;
+    const tasks = m.tasks.filter(t => t.skill && E.effPos(S, t).includes(ps));
+    if (!tasks.length) return;
+    const total = tasks.reduce((a, t) => { const ap = E.effPos(S, t); const n = ap.filter(x => x !== '*').length || 1; return a + minOf(t) / n; }, 0);
+    const rows = tasks.map(t => {
+      const ap = E.effPos(S, t);
+      const mates = ap.filter(x => x !== ps).map(x => x[0] === '@' ? plainName((workerById(x.slice(1)) || {}).name || x.slice(1)) : (POS.includes(x) ? names[POS.indexOf(x)] : '')).filter(Boolean);
+      return { item: t.id, desc: t.name, qty: 1, sub: stdSub(t, mates.length ? 'con ' + mates.join(', ') : '') };
+    });
+    sheets.push(docSheet({
+      title: 'Hoja de Procedimiento Estándar', rowsTitle: 'Tareas del puesto por módulo',
+      proyecto: `Formato estándar · ${m.name}`, cliente: '', operario: `${names[k]} — ${ref ? ref.name + ' · ' : ''}${POS_LABEL[ps]}`,
+      opName: names[k] === POS_LABEL[ps] ? '' : names[k], supervisor: sup ? plainName(sup.name) : '',
+      fecha: '', fechaSub: `Carga del puesto: ${hhm(total)} por módulo`, rows, minRows: 4
+    }));
+  });
+  if (who === 'all' || who === 'sup') {
+    const sTasks = m.tasks.filter(t => t.skill && E.effPos(S, t).some(isSupport) && !E.effPos(S, t).some(x => POS.includes(x)));
+    if (sTasks.length) {
+      const rows = sTasks.map(t => { const ap = E.effPos(S, t); const by = ap.includes('*') ? 'cualquier operario habilitado (' + t.skill + ')' : ap.filter(x => x[0] === '@').map(x => plainName((workerById(x.slice(1)) || {}).name || x.slice(1))).join(', '); return { item: t.id, desc: t.name, qty: 1, sub: stdSub(t, 'la hace ' + by) }; });
+      sheets.push(docSheet({ title: 'Hoja de Procedimiento Estándar', rowsTitle: 'Tareas de apoyo de planta por módulo', proyecto: `Formato estándar · ${m.name}`, cliente: '', operario: 'Apoyo de planta (fuera de la cuadrilla)', opName: '', supervisor: sup ? plainName(sup.name) : '', fecha: '', rows, minRows: 4 }));
+    }
+  }
+  return controls + `<p class="mb-3 text-xs text-ink-3 no-print">${esc(m.name)}: todas las tareas asignadas. ${sheets.length} hoja${sheets.length === 1 ? '' : 's'} para imprimir.</p><div class="doc-stack">${sheets.join('') || card('<p class="p-6 text-sm text-ink-2">No hay tareas para esta selección.</p>')}</div>`;
 }
